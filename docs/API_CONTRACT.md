@@ -17,6 +17,8 @@
 - **Public (no auth):** `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/verify-email`, `POST /api/auth/resend-verification`, `GET /health/live`, `GET /health/ready`, and static frontend assets.
 - **Authenticated (token required):** everything else, including `GET /api/auth/me`. Missing/invalid/expired/logged-out token → **401**.
 - **Verified required:** authenticated endpoints additionally require `email_verified=true`. An authenticated-but-unverified state is not reachable because login does not issue a session to unverified accounts (it returns 403 first). A token whose user somehow became unverified → **403 account_not_verified**.
+- **Blocked users (ADR-0007):** a blocked account cannot authenticate. Login returns **401 account_blocked**; any surviving session token resolves to **401 unauthorized** (blocked sessions are purged on block). "Blocked == not authenticated" is uniform across login and every protected request.
+- **Authorization (ADR-0007):** two principal kinds. An **admin** (`isAdmin=true`) ignores team scoping. A **member** may only read/write resources of teams they belong to. `/api/admin/*` requires `isAdmin` (else **403 forbidden**). Team-scoped endpoints (teams list/wip-limits, epics, tickets, board, comments) require admin-or-membership; team **create/rename/delete** are admin-only. Enforcement is **server-side per resource**, not merely list filtering.
 
 ---
 
@@ -40,17 +42,23 @@ Every non-2xx response uses this exact shape:
 |---|---|---|
 | 400 | `validation_error` | Malformed body, empty-after-trim, bad email syntax, password < 8 or > 1024, oversized field, **invalid enum** (`type`/`state`), **referenced entity in body does not exist** (unknown `teamId`/`epicId`) |
 | 400 | `epic_team_mismatch` | Ticket `epicId` belongs to a team other than the ticket's `teamId` |
-| 401 | `unauthorized` | No/invalid/expired/logged-out bearer token |
+| 401 | `unauthorized` | No/invalid/expired/logged-out bearer token; or a token whose user is now blocked |
 | 401 | `invalid_credentials` | Login: wrong password or unknown email (anti-enumeration, identical message) |
+| 401 | `account_blocked` | Login (or session resolution) for a blocked account (ADR-0007) |
 | 403 | `account_not_verified` | Login with correct creds on an unverified account |
+| 403 | `forbidden` | Authenticated but not allowed: non-admin in admin zone; member acting on a non-member team's resource; reset-password on a blocked user (ADR-0007) |
 | 404 | `not_found` | Resource addressed in the URL path (`/{id}`) does not exist |
 | 409 | `duplicate_team_name` | Team create/rename collides case-insensitively |
 | 409 | `team_has_children` | Delete team that has tickets or epics |
 | 409 | `epic_referenced_by_tickets` | Delete epic referenced by ≥1 ticket |
 | 409 | `wip_limit_reached` | Create/move a ticket INTO a (team, state) whose WIP limit is already reached |
+| 409 | `last_admin_required` | Demote/block/delete that would leave zero active admins (ADR-0008) |
+| 409 | `email_in_use` | Admin create-user with an email that already exists (admin zone only; public signup stays non-enumerating) |
 | 400 | `invalid_or_expired_token` | verify-email: token unknown, consumed, or expired |
 
 **Rule:** `400` = bad/ill-formed payload (incl. a non-existent reference passed in the body); `404` = the URL-path resource is absent; `409` = conflict with persisted state (uniqueness or protective delete-guard). Applied uniformly.
+
+**403-vs-404 ordering (ADR-0007):** for a team-scoped resource addressed by id, resolve the resource **first**. If it does not exist → **404 not_found**. If it exists but the caller (a member) has no access to its team → **403 forbidden**. GUID ids make leaking existence negligible; this keeps the 404 semantics for genuinely missing ids intact.
 
 ---
 
@@ -87,12 +95,19 @@ Creates an unverified account and sends a verification email. No session is issu
 ```json
 {
   "token": "9f2b...base64url-opaque-256bit...",
-  "user": { "id": "8e29c1b4-...", "email": "alex@dataart.com", "emailVerified": true },
+  "user": { "id": "8e29c1b4-...", "email": "alex@dataart.com", "emailVerified": true,
+            "isAdmin": false, "isBlocked": false, "teams": [ { "id": "f1...", "name": "Platform" } ] },
   "expiresAt": "2026-07-03T11:26:00Z"
 }
 ```
+- `user` carries the authorization context (`isAdmin`, `isBlocked`, `teams[]`) so the SPA can bootstrap nav + team-selector from a single response (mirror of `/api/auth/me`).
+
 **Errors:**
 - `401 invalid_credentials` — wrong password OR unknown email (identical response, A3).
+- `401 account_blocked` — correct creds on a blocked account (ADR-0007). Checked **before** the unverified branch, so a blocked-and-unverified account reports blocked:
+```json
+{ "error": { "code": "account_blocked", "message": "This account has been blocked. Contact an administrator." } }
+```
 - `403 account_not_verified` — correct creds, unverified (A4):
 ```json
 { "error": { "code": "account_not_verified", "message": "Your account is not verified. Check your email or request a new verification link." } }
@@ -118,6 +133,8 @@ Consumes a single-use verification token. The token arrives via the emailed link
 ```json
 { "message": "Email verified — your account is ready to use." }
 ```
+**Side effect (ADR-0007/0008):** on success, in the **same transaction**, the user is granted membership in the configurable default team (`DEFAULT_SIGNUP_TEAM_NAME`, default `Demo Team`), matched case-insensitively by name. If no such team exists, the user gets no membership and a warning is logged (the deployment can assign teams later via the admin zone). Admin-created users are pre-verified and never traverse this path.
+
 **Errors:** `400 invalid_or_expired_token` — token unknown, already consumed (single-use), or expired (`now >= expires_at`, A31). The SPA shows the error state with a **resend** action.
 
 ### 3.5 `POST /api/auth/resend-verification` — public
@@ -133,7 +150,7 @@ Issues a fresh token, invalidating all earlier unused/unexpired tokens for that 
 ```json
 { "message": "If an account needs verification, a new email has been sent." }
 ```
-- For a non-existent or already-verified email, no usable token is created and the response is identical (A8). Light rate-limiting recommended (A32).
+- For a non-existent, already-verified, **or blocked** email, no usable token is created and the response is identical (A8, ADR-0007). A blocked user cannot use verification to regain access. Light rate-limiting recommended (A32).
 
 ### 3.6 `GET /api/auth/me` — authenticated
 
@@ -141,9 +158,15 @@ SPA bootstrap: returns the current user for the presented token.
 
 **200 OK**
 ```json
-{ "id": "8e29c1b4-...", "email": "alex@dataart.com", "emailVerified": true }
+{
+  "id": "8e29c1b4-...", "email": "alex@dataart.com", "emailVerified": true,
+  "isAdmin": false, "isBlocked": false,
+  "teams": [ { "id": "f1...", "name": "Platform" } ]
+}
 ```
-**Errors:** `401 unauthorized`.
+- `isAdmin` drives the admin-only "Users" nav item; `teams[]` drives the board team-selector and the "load last/first team" client logic (ADR-0007). An admin's `teams[]` may be empty (admins ignore scoping).
+
+**Errors:** `401 unauthorized` (incl. a token whose user became blocked).
 
 ---
 
@@ -161,8 +184,8 @@ Team object:
 ```
 - `wipLimits` — the per-team WIP (Work-In-Progress) cap per state. **All five states are always present**; a value of `null` means that state is **unlimited**, an integer (1–999) is the cap. A fresh team has every state `null`. (UX_LIMITS spec; ADR-0006.)
 
-### 4.1 `GET /api/teams` — authenticated
-Lists all teams (no ownership; all verified users see all — source §4) with counts (Wireframe 4).
+### 4.1 `GET /api/teams` — authenticated (membership-scoped, ADR-0007)
+Lists teams with counts (Wireframe 4). An **admin** sees all teams; a **member** sees only the teams they belong to (server-side filter). An empty result is `[]`.
 
 **200 OK**
 ```json
@@ -173,7 +196,9 @@ Lists all teams (no ownership; all verified users see all — source §4) with c
 ```
 Empty: `[]` (SPA shows "no teams" empty state, EC9).
 
-### 4.2 `POST /api/teams` — authenticated
+### 4.2 `POST /api/teams` — admin only (ADR-0007)
+A non-admin caller → **403 forbidden**.
+
 **Request**
 ```json
 { "name": "  Platform  " }
@@ -188,7 +213,9 @@ Empty: `[]` (SPA shows "no teams" empty state, EC9).
 { "error": { "code": "duplicate_team_name", "message": "A team with this name already exists." } }
 ```
 
-### 4.3 `PUT /api/teams/{id}` — authenticated (rename)
+### 4.3 `PUT /api/teams/{id}` — admin only (rename, ADR-0007)
+A non-admin caller → **403 forbidden**.
+
 **Request**
 ```json
 { "name": "Payments" }
@@ -197,8 +224,8 @@ Empty: `[]` (SPA shows "no teams" empty state, EC9).
 - No-op rule: if the normalized new name equals the stored normalized name → nothing persisted, `modifiedAt` unchanged (A10), still 200 with the unchanged object.
 **Errors:** `404 not_found` (unknown id); `400 validation_error` (blank); `409 duplicate_team_name` (collides with a *different* team, US-TEAM-2).
 
-### 4.4 `DELETE /api/teams/{id}` — authenticated
-**204 No Content** when the team has zero tickets and zero epics.
+### 4.4 `DELETE /api/teams/{id}` — admin only (ADR-0007)
+A non-admin caller → **403 forbidden**. **204 No Content** when the team has zero tickets and zero epics.
 **Errors:**
 - `404 not_found` — unknown id.
 - `409 team_has_children` — team has any ticket OR epic; nothing deleted, no cascade (V9, EC7):
@@ -206,7 +233,8 @@ Empty: `[]` (SPA shows "no teams" empty state, EC9).
 { "error": { "code": "team_has_children", "message": "Cannot delete a team that still has tickets or epics. Remove them first." } }
 ```
 
-### 4.5 `PUT /api/teams/{id}/wip-limits` — authenticated (set per-state WIP limits)
+### 4.5 `PUT /api/teams/{id}/wip-limits` — admin OR member of the team (ADR-0007)
+Resolve the team first: unknown id → **404 not_found**; a member who is not in the team → **403 forbidden**.
 
 Replaces this team's per-state WIP caps in one request. The body is a map of canonical state → limit; a value of `null` (or an **omitted** state) means **unlimited** for that state. The request is the authoritative full set: a state not present is cleared to unlimited.
 
@@ -231,6 +259,8 @@ Replaces this team's per-state WIP caps in one request. The body is a map of can
 ---
 
 ## 5. Epics
+
+> **Authorization (ADR-0007):** every epic operation is **M(team)** — admin, or a member of the epic's team. List/create check the request `teamId`; edit/delete resolve the epic, then check its team (404-then-403 ordering). A member acting on a non-member team's epic → **403 forbidden**.
 
 Epic object:
 ```json
@@ -282,6 +312,8 @@ Lists epics for one team with referencing-ticket counts (Wireframe 5). `teamId` 
 ---
 
 ## 6. Tickets
+
+> **Authorization (ADR-0007):** every ticket/board operation is **M(team)** — admin, or a member of the ticket's team. Board/detail resolve then check (IDOR guard, 404-then-403). On create the body `teamId` must be accessible; on edit a member must have access to **both** the current team and the target team (cannot move a ticket into a team they don't belong to). A member acting on a non-member team → **403 forbidden**.
 
 Ticket object (detail):
 ```json
@@ -383,6 +415,8 @@ Deletes the ticket and **cascades to its comments** (V22, the only mandated casc
 
 ## 7. Comments
 
+> **Authorization (ADR-0007):** list/add resolve the comment's ticket → its team, then check access — **M(team of ticket)**. Unknown ticket → **404 not_found**; a member acting on a non-member team's ticket → **403 forbidden**.
+
 Comment object:
 ```json
 { "id": "cm01...", "ticketId": "tk1042...", "authorId": "8e29c1b4-...", "authorEmail": "alex@dataart.com", "body": "Looks fixed.", "createdAt": "2026-06-23T13:00:00Z" }
@@ -409,19 +443,76 @@ Lists a ticket's comments **oldest-first** (V23, FR-E5-4).
 
 ---
 
-## 8. Health
+## 8. Admin — User Management (ADR-0007 / ADR-0008)
 
-### 8.1 `GET /health/live` — public
+All endpoints under `/api/admin/*` are **admin only**: a valid, verified, non-blocked session **and** `isAdmin=true`. A non-admin authenticated caller → **403 forbidden**.
+
+**User object (admin list/detail):**
+```json
+{
+  "id": "8e29c1b4-...", "email": "alex@dataart.com",
+  "isAdmin": true, "isBlocked": false, "emailVerified": true,
+  "status": "active", "createdAt": "2026-06-30T11:26:00Z",
+  "teams": [ { "id": "f1...", "name": "Platform" } ]
+}
+```
+- `status` is **derived**: `blocked` if `isBlocked`; else `unverified` if `!emailVerified`; else `active`.
+
+### 8.1 `GET /api/admin/users` — admin
+Lists **all** users (no team filter — admins are global), ordered by `createdAt` asc. **200 OK** → array of user objects. **Errors:** `401`; `403 forbidden`.
+
+### 8.2 `POST /api/admin/users` — admin
+**Request**
+```json
+{ "email": "newdev@dataart.com", "password": null, "isAdmin": false, "teamIds": ["f1..."] }
+```
+- `email`: required, valid, normalized-unique → else **409 email_in_use**.
+- `password`: optional; null/blank ⇒ the server generates a strong password (≥16, mixed classes) and returns it once. If provided, must satisfy ≥8 / ≤1024.
+- `isAdmin`: optional (default false). `teamIds`: optional; each must reference an existing team (else **400 validation_error** keyed `teamIds`); de-duplicated.
+- The account is created `emailVerified=true`, `isBlocked=false`, with **no** verification token and **no** email sent.
+
+**201 Created**
+```json
+{ "user": { "...": "user object" }, "generatedPassword": "Xk9$mPq2vLr7Wn4t" }
+```
+`generatedPassword` is `null` when the admin supplied the password. **Errors:** `400`; `409 email_in_use`; `401`/`403`.
+
+### 8.3 `PUT /api/admin/users/{id}/role` — admin
+**Request:** `{ "isAdmin": false }` → **200 OK** with the updated user object. Idempotent (same value = no-op success). Demoting the **last active admin** → **409 last_admin_required**. Promotion is always allowed. **Errors:** `404`; `409 last_admin_required`; `401`/`403`.
+
+### 8.4 `PUT /api/admin/users/{id}/teams` — admin
+**Request:** `{ "teamIds": ["f1...", "a2..."] }` — replaces the full membership set. Each id must exist (else **400 validation_error**); de-duplicated; empty/null ⇒ no teams. **200 OK** with the updated user object. Does not affect `isAdmin`. **Errors:** `400`; `404`; `401`/`403`.
+
+### 8.5 `POST /api/admin/users/{id}/block` — admin
+Empty body. Sets `isBlocked=true` and **deletes all the user's sessions** in one transaction. Blocking the **last active admin** → **409 last_admin_required**. Idempotent. **200 OK** with the updated user object. **Errors:** `404`; `409 last_admin_required`; `401`/`403`.
+
+### 8.6 `POST /api/admin/users/{id}/unblock` — admin
+Empty body. Sets `isBlocked=false` (no session restoration; the user logs in again). Idempotent. **200 OK** with the updated user object. **Errors:** `404`; `401`/`403`.
+
+### 8.7 `POST /api/admin/users/{id}/reset-password` — admin
+Empty body. Generates a strong password, stores only its Argon2id hash, **deletes all the user's sessions**, and returns the plaintext once. Reset on a **blocked** user → **403 forbidden** ("Unblock the account before resetting its password.").
+
+**200 OK**
+```json
+{ "generatedPassword": "Xk9$mPq2vLr7Wn4t" }
+```
+**Errors:** `404`; `403 forbidden` (target blocked, or caller not admin); `401`.
+
+---
+
+## 9. Health
+
+### 9.1 `GET /health/live` — public
 Liveness. **200 OK** `{ "status": "live" }`. Always 200 if the process is up.
 
-### 8.2 `GET /health/ready` — public
+### 9.2 `GET /health/ready` — public
 Readiness: DB reachable AND migrations applied **[ADR-0003]**.
 - **200 OK** `{ "status": "ready" }`
 - **503 Service Unavailable** `{ "status": "not-ready", "reason": "database" | "migrations" }` while the DB is unreachable or migrations are still running.
 
 ---
 
-## 9. Conventions recap (binding)
+## 10. Conventions recap (binding)
 
 - Auth: `Authorization: Bearer <token>`; never in URLs; verify token only in the emailed link (§9 source, ADR-0001/0006).
 - Timestamps: ISO-8601 UTC, trailing `Z`. Enums: canonical lowercase exactly as listed; the API never accepts/returns display-cased values.

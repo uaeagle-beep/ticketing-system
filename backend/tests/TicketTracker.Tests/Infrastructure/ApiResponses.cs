@@ -14,10 +14,34 @@ public sealed record ErrorBodyDto(
 
 public sealed record MessageDto([property: JsonPropertyName("message")] string Message);
 
+public sealed record TeamRefDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("name")] string Name);
+
 public sealed record UserDto(
     [property: JsonPropertyName("id")] Guid Id,
     [property: JsonPropertyName("email")] string Email,
-    [property: JsonPropertyName("emailVerified")] bool EmailVerified);
+    [property: JsonPropertyName("emailVerified")] bool EmailVerified,
+    [property: JsonPropertyName("isAdmin")] bool IsAdmin = false,
+    [property: JsonPropertyName("isBlocked")] bool IsBlocked = false,
+    [property: JsonPropertyName("teams")] List<TeamRefDto>? Teams = null);
+
+public sealed record AdminUserDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("email")] string Email,
+    [property: JsonPropertyName("isAdmin")] bool IsAdmin,
+    [property: JsonPropertyName("isBlocked")] bool IsBlocked,
+    [property: JsonPropertyName("emailVerified")] bool EmailVerified,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
+    [property: JsonPropertyName("teams")] List<TeamRefDto> Teams);
+
+public sealed record CreateUserResponseDto(
+    [property: JsonPropertyName("user")] AdminUserDto User,
+    [property: JsonPropertyName("generatedPassword")] string? GeneratedPassword);
+
+public sealed record ResetPasswordResponseDto(
+    [property: JsonPropertyName("generatedPassword")] string GeneratedPassword);
 
 public sealed record LoginDto(
     [property: JsonPropertyName("token")] string Token,

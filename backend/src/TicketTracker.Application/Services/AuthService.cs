@@ -128,6 +128,13 @@ public sealed class AuthService
             throw new ServiceException(ServiceErrorCode.InvalidCredentials,
                 "Invalid email or password.");
 
+        // Blocked accounts cannot log in even with correct creds (ASR-2). Checked BEFORE the verified
+        // branch so a blocked-and-unverified account reports blocked (§4.9). 401 account_blocked keeps
+        // "blocked == not authenticated" uniform across login and mid-session (ADR-0007, §5).
+        if (user.IsBlocked)
+            throw new ServiceException(ServiceErrorCode.AccountBlocked,
+                "This account has been blocked. Contact an administrator.");
+
         // Correct creds but unverified => 403 + resend hint; no session issued (A1, A4).
         if (!user.EmailVerified)
             throw new ServiceException(ServiceErrorCode.AccountNotVerified,
@@ -146,10 +153,8 @@ public sealed class AuthService
         _db.Sessions.Add(session);
         await _db.SaveChangesAsync(ct);
 
-        return new LoginResponse(
-            rawSession,
-            new UserDto(user.Id, user.Email, user.EmailVerified),
-            session.ExpiresAt);
+        var userDto = await BuildUserDtoAsync(user, ct);
+        return new LoginResponse(rawSession, userDto, session.ExpiresAt);
     }
 
     // ----- Logout (API_CONTRACT §3.3) -----
@@ -200,6 +205,12 @@ public sealed class AuthService
 
             token.ConsumedAt = now;
             user.EmailVerified = true;
+
+            // Self-registered member joins the configurable default team on first verification (req 8,
+            // ASR-6). Matched by normalized name; if absent, the user gets no team + a warning. Done in
+            // the SAME transaction as the verify so the two effects are atomic.
+            await GrantDefaultTeamMembershipAsync(user.Id, now, ct);
+
             await _db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
         });
@@ -220,7 +231,9 @@ public sealed class AuthService
         var user = await _db.Users.FirstOrDefaultAsync(u => u.EmailNormalized == normalized, ct);
 
         // Non-committal for unknown or already-verified accounts (A8): no usable token issued.
-        if (user is null || user.EmailVerified)
+        // Also non-committal for BLOCKED accounts (ASR-2, §4.9): a blocked user must not be able to use
+        // verification to regain access, so no token is issued — same 202 to avoid leaking the state.
+        if (user is null || user.EmailVerified || user.IsBlocked)
             return nonCommittal;
 
         var now = _clock.UtcNow;
@@ -256,16 +269,18 @@ public sealed class AuthService
     {
         var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct)
             ?? throw ServiceException.Unauthorized();
-        return new UserDto(user.Id, user.Email, user.EmailVerified);
+        return await BuildUserDtoAsync(user, ct);
     }
 
     // ----- Bearer-token session resolution (used by API auth middleware, ADR-0001) -----
 
     /// <summary>
-    /// Resolve a raw bearer token to its verified user. Returns null on any miss
-    /// (unknown/expired token, missing/unverified user). Lazily deletes an expired session.
+    /// Resolve a raw bearer token to its authenticated principal (ADR-0007). Returns null on any miss
+    /// (unknown/expired token, missing/unverified/BLOCKED user). Lazily deletes an expired session.
+    /// The result carries the user's <c>IsAdmin</c> flag and membership team ids so the middleware can
+    /// populate <see cref="ICurrentUser"/> in one round-trip.
     /// </summary>
-    public async Task<User?> ResolveSessionUserAsync(string rawToken, CancellationToken ct)
+    public async Task<CurrentPrincipal?> ResolveSessionUserAsync(string rawToken, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(rawToken)) return null;
 
@@ -285,11 +300,67 @@ public sealed class AuthService
         }
 
         var user = session.User;
-        if (user is null || !user.EmailVerified) return null;
-        return user;
+        // Unverified OR blocked => treated as no valid session (ASR-2: blocked == not authenticated).
+        if (user is null || !user.EmailVerified || user.IsBlocked) return null;
+
+        var teamIds = await _db.UserTeams.AsNoTracking()
+            .Where(m => m.UserId == user.Id)
+            .Select(m => m.TeamId)
+            .ToListAsync(ct);
+
+        return new CurrentPrincipal(user.Id, user.IsAdmin, teamIds);
     }
 
     // ----- helpers -----
+
+    /// <summary>Builds the /me + login user payload, projecting the user's team memberships (id + name).</summary>
+    private async Task<UserDto> BuildUserDtoAsync(User user, CancellationToken ct)
+    {
+        var teams = await _db.UserTeams.AsNoTracking()
+            .Where(m => m.UserId == user.Id)
+            .OrderBy(m => m.Team!.NameNormalized)
+            .Select(m => new TeamRefDto(m.TeamId, m.Team!.Name))
+            .ToListAsync(ct);
+        return new UserDto(user.Id, user.Email, user.EmailVerified, user.IsAdmin, user.IsBlocked, teams);
+    }
+
+    /// <summary>
+    /// Grants the verifying user membership in the configured default team if it exists and they are
+    /// not already a member (req 8, ASR-6). Adds a tracked <see cref="UserTeam"/> (persisted by the
+    /// caller's SaveChanges inside the verify transaction). Missing team ⇒ warning + no membership.
+    /// </summary>
+    private async Task GrantDefaultTeamMembershipAsync(Guid userId, DateTime now, CancellationToken ct)
+    {
+        var normalizedTeamName = Normalization.NormalizeKey(_options.DefaultSignupTeamName);
+        if (Normalization.IsBlank(normalizedTeamName))
+            return;
+
+        var teamId = await _db.Teams
+            .Where(t => t.NameNormalized == normalizedTeamName)
+            .Select(t => (Guid?)t.Id)
+            .FirstOrDefaultAsync(ct);
+
+        if (teamId is null)
+        {
+            _logger.LogWarning(
+                "Default signup team '{TeamName}' not found; verified user joins no team (req 8).",
+                _options.DefaultSignupTeamName);
+            return;
+        }
+
+        var alreadyMember = await _db.UserTeams
+            .AnyAsync(m => m.UserId == userId && m.TeamId == teamId.Value, ct);
+        if (alreadyMember)
+            return;
+
+        _db.UserTeams.Add(new UserTeam
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            TeamId = teamId.Value,
+            CreatedAt = now
+        });
+    }
 
     /// <summary>
     /// Returns a process-wide dummy Argon2id hash (computed once via the real hasher so its cost

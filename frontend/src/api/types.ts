@@ -27,6 +27,11 @@ export type ApiErrorCode =
   | 'epic_referenced_by_tickets'
   | 'wip_limit_reached'
   | 'invalid_or_expired_token'
+  // User Management (ADR-0007/0008).
+  | 'forbidden'
+  | 'account_blocked'
+  | 'last_admin_required'
+  | 'email_in_use'
   // Defensive fallback for any code not enumerated above.
   | (string & {});
 
@@ -39,10 +44,21 @@ export interface ApiErrorBody {
 }
 
 // ---- Auth (API_CONTRACT §3) ----
+
+// A lightweight team reference (id + name) carried inside user payloads (ADR-0007).
+export interface TeamRef {
+  id: string;
+  name: string;
+}
+
 export interface AuthUser {
   id: string;
   email: string;
   emailVerified: boolean;
+  // User Management (ADR-0007): admin flag + memberships drive nav/team-scoping.
+  isAdmin: boolean;
+  isBlocked: boolean;
+  teams: TeamRef[];
 }
 
 export interface LoginResponse {
@@ -219,4 +235,46 @@ export interface BoardFilters {
   type?: TicketType;
   epicId?: string;
   search?: string;
+}
+
+// ---- Admin — User Management (API_CONTRACT §8, ADR-0007) ----
+
+// Derived status string shown in the Users list (also conveyed by the booleans).
+export type AdminUserStatus = 'active' | 'unverified' | 'blocked';
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  isAdmin: boolean;
+  isBlocked: boolean;
+  emailVerified: boolean;
+  status: AdminUserStatus;
+  createdAt: string; // ISO-8601 UTC
+  teams: TeamRef[];
+}
+
+export interface CreateUserRequest {
+  email: string;
+  // null/blank => the server generates a strong password and returns it once.
+  password?: string | null;
+  isAdmin: boolean;
+  teamIds?: string[] | null;
+}
+
+export interface CreateUserResponse {
+  user: AdminUser;
+  // Present (shown once) only when the server generated the password.
+  generatedPassword: string | null;
+}
+
+export interface SetRoleRequest {
+  isAdmin: boolean;
+}
+
+export interface SetTeamsRequest {
+  teamIds: string[] | null;
+}
+
+export interface ResetPasswordResponse {
+  generatedPassword: string;
 }

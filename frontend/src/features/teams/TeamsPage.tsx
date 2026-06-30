@@ -11,6 +11,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { teamsApi } from '@/api/endpoints';
 import { queryKeys } from '@/lib/queryKeys';
 import type { Team, TicketState } from '@/api/types';
+import { useAuth } from '@/auth/AuthContext';
 import { useTeams } from './useTeams';
 import { formatUtc } from '@/lib/time';
 import { errorMessage } from '@/lib/errors';
@@ -22,6 +23,8 @@ import { WipLimitsPanel } from './WipLimitsPanel';
 export function TeamsPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const { user } = useAuth();
+  const isAdmin = Boolean(user?.isAdmin); // team create/rename/delete is admin-only (ADR-0007)
   const teamsQuery = useTeams();
   const teams = teamsQuery.data ?? [];
 
@@ -104,17 +107,23 @@ export function TeamsPage() {
       <div className="page-header">
         <h1>Teams</h1>
         <div className="spacer" />
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => setShowCreate((v) => !v)}
-        >
-          + Create team
-        </button>
+        {isAdmin ? (
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => setShowCreate((v) => !v)}
+          >
+            + Create team
+          </button>
+        ) : null}
       </div>
-      <p className="page-note">All verified users can view and manage all teams.</p>
+      <p className="page-note">
+        {isAdmin
+          ? 'Admins create, rename and delete teams and set WIP limits.'
+          : 'You can view your teams and set their WIP limits. Only admins manage team creation.'}
+      </p>
 
-      {showCreate ? (
+      {isAdmin && showCreate ? (
         <form className="inline-form" onSubmit={submitCreate}>
           <div className="grow">
             <input
@@ -150,11 +159,17 @@ export function TeamsPage() {
       ) : teams.length === 0 ? (
         <EmptyState
           title="No teams yet"
-          message="Create your first team to start organizing tickets."
+          message={
+            isAdmin
+              ? 'Create your first team to start organizing tickets.'
+              : 'You are not a member of any team yet. Ask an admin to add you.'
+          }
           action={
-            <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-              + Create team
-            </button>
+            isAdmin ? (
+              <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
+                + Create team
+              </button>
+            ) : undefined
           }
         />
       ) : (
@@ -211,7 +226,7 @@ export function TeamsPage() {
                   <td className="nowrap muted">{formatUtc(team.modifiedAt)}</td>
                   <td>
                     <div className="table-actions">
-                      {!isEditing ? (
+                      {isAdmin && !isEditing ? (
                         <button
                           type="button"
                           className="btn btn-secondary btn-sm"
@@ -228,19 +243,21 @@ export function TeamsPage() {
                       >
                         WIP limits
                       </button>
-                      <button
-                        type="button"
-                        className="btn btn-danger btn-sm"
-                        disabled={hasChildren}
-                        title={
-                          hasChildren
-                            ? 'Cannot delete a team that still has tickets or epics. Remove them first.'
-                            : undefined
-                        }
-                        onClick={() => setDeleteTarget(team)}
-                      >
-                        Delete
-                      </button>
+                      {isAdmin ? (
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          disabled={hasChildren}
+                          title={
+                            hasChildren
+                              ? 'Cannot delete a team that still has tickets or epics. Remove them first.'
+                              : undefined
+                          }
+                          onClick={() => setDeleteTarget(team)}
+                        >
+                          Delete
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

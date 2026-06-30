@@ -13,6 +13,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<EpicService>();
         services.AddScoped<TicketService>();
         services.AddScoped<CommentService>();
+        services.AddScoped<UserAdminService>();
         return services;
     }
 }

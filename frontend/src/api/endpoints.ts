@@ -3,6 +3,7 @@
 
 import { http } from './client';
 import type {
+  AdminUser,
   AuthUser,
   Board,
   BoardFilters,
@@ -11,6 +12,8 @@ import type {
   CreateEpicRequest,
   CreateTeamRequest,
   CreateTicketRequest,
+  CreateUserRequest,
+  CreateUserResponse,
   Epic,
   LoginRequest,
   LoginResponse,
@@ -18,6 +21,9 @@ import type {
   PatchTicketStateRequest,
   RenameTeamRequest,
   ResendVerificationRequest,
+  ResetPasswordResponse,
+  SetRoleRequest,
+  SetTeamsRequest,
   SignupRequest,
   Team,
   TicketDetail,
@@ -129,4 +135,31 @@ export const commentsApi = {
   // POST /api/tickets/{id}/comments -> 201 Comment
   create: (ticketId: string, body: CreateCommentRequest) =>
     http.post<Comment>(`/tickets/${ticketId}/comments`, body),
+};
+
+// ---- Admin — User Management (§8, admin-only) ----
+export const adminUsersApi = {
+  // GET /api/admin/users -> 200 AdminUser[]
+  list: (signal?: AbortSignal) => http.get<AdminUser[]>('/admin/users', undefined, signal),
+
+  // POST /api/admin/users -> 201 { user, generatedPassword? }
+  create: (body: CreateUserRequest) => http.post<CreateUserResponse>('/admin/users', body),
+
+  // PUT /api/admin/users/{id}/role -> 200 AdminUser
+  setRole: (id: string, body: SetRoleRequest) =>
+    http.put<AdminUser>(`/admin/users/${id}/role`, body),
+
+  // PUT /api/admin/users/{id}/teams -> 200 AdminUser
+  setTeams: (id: string, body: SetTeamsRequest) =>
+    http.put<AdminUser>(`/admin/users/${id}/teams`, body),
+
+  // POST /api/admin/users/{id}/block -> 200 AdminUser
+  block: (id: string) => http.post<AdminUser>(`/admin/users/${id}/block`),
+
+  // POST /api/admin/users/{id}/unblock -> 200 AdminUser
+  unblock: (id: string) => http.post<AdminUser>(`/admin/users/${id}/unblock`),
+
+  // POST /api/admin/users/{id}/reset-password -> 200 { generatedPassword }
+  resetPassword: (id: string) =>
+    http.post<ResetPasswordResponse>(`/admin/users/${id}/reset-password`),
 };

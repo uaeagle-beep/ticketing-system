@@ -20,6 +20,7 @@ public interface IAppDbContext
     DbSet<Ticket> Tickets { get; }
     DbSet<Comment> Comments { get; }
     DbSet<WipLimit> WipLimits { get; }
+    DbSet<UserTeam> UserTeams { get; }
 
     /// <summary>Access to the underlying provider for transactions / connectivity checks.</summary>
     DatabaseFacade Database { get; }

@@ -34,6 +34,21 @@ describe('errorMessage', () => {
     expect(errorMessage(err)).toBe('A very specific server message.');
   });
 
+  it('maps the User-Management codes to friendly messages (ADR-0007/0008)', () => {
+    expect(errorMessage(new ApiError(401, 'account_blocked', 'srv'))).toBe(
+      'This account has been blocked. Contact an administrator.',
+    );
+    expect(errorMessage(new ApiError(403, 'forbidden', 'srv'))).toBe(
+      'You do not have permission to perform this action.',
+    );
+    expect(errorMessage(new ApiError(409, 'last_admin_required', 'srv'))).toBe(
+      'The system must keep at least one active administrator.',
+    );
+    expect(errorMessage(new ApiError(409, 'email_in_use', 'srv'))).toBe(
+      'A user with this email already exists.',
+    );
+  });
+
   it('falls back to a generic validation message when no field errors and no friendly entry', () => {
     // validation_error with no field map and no FRIENDLY entry -> server message.
     const err = new ApiError(400, 'validation_error', 'Bad request body.');

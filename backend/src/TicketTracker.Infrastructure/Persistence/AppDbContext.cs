@@ -24,6 +24,7 @@ public sealed class AppDbContext : DbContext, IAppDbContext
     public DbSet<Ticket> Tickets => Set<Ticket>();
     public DbSet<Comment> Comments => Set<Comment>();
     public DbSet<WipLimit> WipLimits => Set<WipLimit>();
+    public DbSet<UserTeam> UserTeams => Set<UserTeam>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -47,8 +48,33 @@ public sealed class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.EmailNormalized).HasColumnName("email_normalized").HasMaxLength(320).IsRequired();
             e.Property(x => x.PasswordHash).HasColumnName("password_hash").IsRequired();
             e.Property(x => x.EmailVerified).HasColumnName("email_verified").IsRequired();
+            // Authorization flags (ADR-0007). Default false so Npgsql and SQLite agree (ADR-0008).
+            e.Property(x => x.IsAdmin).HasColumnName("is_admin").IsRequired().HasDefaultValue(false);
+            e.Property(x => x.IsBlocked).HasColumnName("is_blocked").IsRequired().HasDefaultValue(false);
             e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
             e.HasIndex(x => x.EmailNormalized).IsUnique(); // case-insensitive uniqueness key (V1)
+        });
+
+        // ---------- UserTeam (membership join) ----------
+        b.Entity<UserTeam>(e =>
+        {
+            e.ToTable("user_teams");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.UserId).HasColumnName("user_id").IsRequired();
+            e.Property(x => x.TeamId).HasColumnName("team_id").IsRequired();
+            e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            // A user cannot be in the same team twice (INV-1).
+            e.HasIndex(x => new { x.UserId, x.TeamId }).IsUnique().HasDatabaseName("ux_user_teams_user_team");
+            e.HasIndex(x => x.TeamId); // "members of team T" lookups
+            e.HasOne(x => x.User)
+                .WithMany(u => u.Memberships)
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade); // membership is an association, not authored content (§2.2)
+            e.HasOne(x => x.Team)
+                .WithMany(t => t.Members)
+                .HasForeignKey(x => x.TeamId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // ---------- EmailVerificationToken ----------

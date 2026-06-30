@@ -21,6 +21,11 @@ const FRIENDLY: Record<string, string> = {
   not_found: 'The requested item could not be found.',
   unauthorized: 'Your session has expired. Please log in again.',
   service_unavailable: 'The server is unavailable. Please try again in a moment.',
+  // User Management (ADR-0007/0008).
+  forbidden: 'You do not have permission to perform this action.',
+  account_blocked: 'This account has been blocked. Contact an administrator.',
+  last_admin_required: 'The system must keep at least one active administrator.',
+  email_in_use: 'A user with this email already exists.',
 };
 
 export function errorMessage(err: unknown): string {

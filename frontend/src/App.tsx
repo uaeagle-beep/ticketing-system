@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from '@/components/AppLayout';
 import { RequireAuth } from '@/auth/RequireAuth';
+import { RequireAdmin } from '@/auth/RequireAdmin';
 import { PublicOnly } from '@/auth/PublicOnly';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { SignupPage } from '@/features/auth/SignupPage';
@@ -9,6 +10,7 @@ import { BoardPage } from '@/features/board/BoardPage';
 import { TicketPage } from '@/features/tickets/TicketPage';
 import { TeamsPage } from '@/features/teams/TeamsPage';
 import { EpicsPage } from '@/features/epics/EpicsPage';
+import { UsersPage } from '@/features/users/UsersPage';
 import { NotFoundPage } from '@/components/NotFoundPage';
 
 export function App() {
@@ -31,6 +33,10 @@ export function App() {
           <Route path="/tickets/:id" element={<TicketPage />} />
           <Route path="/teams" element={<TeamsPage />} />
           <Route path="/epics" element={<EpicsPage />} />
+          {/* Admin-only Users zone (ADR-0007). Backend re-checks admin on every call. */}
+          <Route element={<RequireAdmin />}>
+            <Route path="/users" element={<UsersPage />} />
+          </Route>
         </Route>
       </Route>
 

@@ -22,6 +22,18 @@ public enum ServiceErrorCode
     /// <summary>403 — login with correct creds on an unverified account.</summary>
     AccountNotVerified,
 
+    /// <summary>403 — authenticated but not allowed: non-admin in admin zone, or member acting on a non-member team's resource (ADR-0007).</summary>
+    Forbidden,
+
+    /// <summary>401 — login (or session resolution) for a blocked account (ADR-0007, ASR-2).</summary>
+    AccountBlocked,
+
+    /// <summary>409 — a demote/block/delete that would leave zero active admins (ADR-0008, INV-2).</summary>
+    LastAdminRequired,
+
+    /// <summary>409 — admin create-user with an email that already exists (admin zone, enumeration acceptable).</summary>
+    EmailInUse,
+
     /// <summary>404 — resource addressed in the URL path does not exist.</summary>
     NotFound,
 
@@ -55,6 +67,10 @@ public static class ServiceErrorCodes
         ServiceErrorCode.Unauthorized => "unauthorized",
         ServiceErrorCode.InvalidCredentials => "invalid_credentials",
         ServiceErrorCode.AccountNotVerified => "account_not_verified",
+        ServiceErrorCode.Forbidden => "forbidden",
+        ServiceErrorCode.AccountBlocked => "account_blocked",
+        ServiceErrorCode.LastAdminRequired => "last_admin_required",
+        ServiceErrorCode.EmailInUse => "email_in_use",
         ServiceErrorCode.NotFound => "not_found",
         ServiceErrorCode.DuplicateTeamName => "duplicate_team_name",
         ServiceErrorCode.TeamHasChildren => "team_has_children",

@@ -24,11 +24,15 @@ public static class ErrorStatusMap
         ServiceErrorCode.Unauthorized => StatusCodes.Status401Unauthorized,
         ServiceErrorCode.InvalidCredentials => StatusCodes.Status401Unauthorized,
         ServiceErrorCode.AccountNotVerified => StatusCodes.Status403Forbidden,
+        ServiceErrorCode.Forbidden => StatusCodes.Status403Forbidden,
+        ServiceErrorCode.AccountBlocked => StatusCodes.Status401Unauthorized,
         ServiceErrorCode.NotFound => StatusCodes.Status404NotFound,
         ServiceErrorCode.DuplicateTeamName => StatusCodes.Status409Conflict,
         ServiceErrorCode.TeamHasChildren => StatusCodes.Status409Conflict,
         ServiceErrorCode.EpicReferencedByTickets => StatusCodes.Status409Conflict,
         ServiceErrorCode.WipLimitReached => StatusCodes.Status409Conflict,
+        ServiceErrorCode.LastAdminRequired => StatusCodes.Status409Conflict,
+        ServiceErrorCode.EmailInUse => StatusCodes.Status409Conflict,
         _ => StatusCodes.Status500InternalServerError
     };
 }

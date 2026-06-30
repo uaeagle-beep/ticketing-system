@@ -33,4 +33,7 @@ public sealed class ServiceException : Exception
 
     public static ServiceException Unauthorized(string message = "Authentication is required.")
         => new(ServiceErrorCode.Unauthorized, message);
+
+    public static ServiceException Forbidden(string message = "You are not allowed to perform this action.")
+        => new(ServiceErrorCode.Forbidden, message);
 }

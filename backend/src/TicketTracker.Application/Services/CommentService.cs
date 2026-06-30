@@ -27,9 +27,9 @@ public sealed class CommentService
 
     public async Task<IReadOnlyList<CommentDto>> ListAsync(Guid ticketId, CancellationToken ct)
     {
-        var ticketExists = await _db.Tickets.AnyAsync(t => t.Id == ticketId, ct);
-        if (!ticketExists)
-            throw ServiceException.NotFound("Ticket not found.");
+        // Resolve the ticket's team (404 if the ticket is absent) then check access (403) — §3.3.
+        var teamId = await ResolveTicketTeamAsync(ticketId, ct);
+        _currentUser.RequireTeamAccess(teamId);
 
         return await _db.Comments.AsNoTracking()
             .Where(c => c.TicketId == ticketId)
@@ -47,9 +47,9 @@ public sealed class CommentService
 
     public async Task<CommentDto> AddAsync(Guid ticketId, CreateCommentRequest request, CancellationToken ct)
     {
-        var ticketExists = await _db.Tickets.AnyAsync(t => t.Id == ticketId, ct);
-        if (!ticketExists)
-            throw ServiceException.NotFound("Ticket not found.");
+        // Resolve the ticket's team (404 if the ticket is absent) then check access (403) — §3.3.
+        var teamId = await ResolveTicketTeamAsync(ticketId, ct);
+        _currentUser.RequireTeamAccess(teamId);
 
         var body = Normalization.Trim(request.Body);
         if (Normalization.IsBlank(body))
@@ -75,5 +75,18 @@ public sealed class CommentService
             .FirstOrDefaultAsync(ct) ?? string.Empty;
 
         return new CommentDto(comment.Id, comment.TicketId, comment.AuthorId, authorEmail, comment.Body, comment.CreatedAt);
+    }
+
+    /// <summary>
+    /// Resolves the team that owns the given ticket. Throws 404 not_found if the ticket does not
+    /// exist (so the 404-then-403 ordering of §3.3 holds for the comments sub-resource).
+    /// </summary>
+    private async Task<Guid> ResolveTicketTeamAsync(Guid ticketId, CancellationToken ct)
+    {
+        var teamId = await _db.Tickets.AsNoTracking()
+            .Where(t => t.Id == ticketId)
+            .Select(t => (Guid?)t.TeamId)
+            .FirstOrDefaultAsync(ct);
+        return teamId ?? throw ServiceException.NotFound("Ticket not found.");
     }
 }

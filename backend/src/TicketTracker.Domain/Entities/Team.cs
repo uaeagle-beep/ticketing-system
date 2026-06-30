@@ -23,4 +23,7 @@ public class Team
 
     /// <summary>Per-state WIP caps for this team; an absent state means unlimited (V-WIP-1).</summary>
     public ICollection<WipLimit> WipLimits { get; set; } = new List<WipLimit>();
+
+    /// <summary>Memberships granting users access to this team (ADR-0007).</summary>
+    public ICollection<UserTeam> Members { get; set; } = new List<UserTeam>();
 }

@@ -46,6 +46,12 @@ export function AppLayout() {
           <NavLink to="/epics" className={({ isActive }) => (isActive ? 'active' : '')}>
             Epics
           </NavLink>
+          {/* Users zone is admin-only (ADR-0007). Hidden for members; route also guarded. */}
+          {user?.isAdmin ? (
+            <NavLink to="/users" className={({ isActive }) => (isActive ? 'active' : '')}>
+              Users
+            </NavLink>
+          ) : null}
         </nav>
         <div className="app-header-spacer" />
         <div className="user-menu" ref={menuRef}>

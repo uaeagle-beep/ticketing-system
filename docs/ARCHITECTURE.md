@@ -92,7 +92,19 @@ All PKs are `uuid` (GUID), server-generated. All timestamps are UTC `timestamptz
 | `email_normalized` | varchar(320) | not null, **UNIQUE** | `trim(lower(email))`; the uniqueness key (V1, A6) |
 | `password_hash` | text | not null | Argon2id encoded hash (PHC string); never the password (V2) |
 | `email_verified` | boolean | not null, default false | gate for business access (V5, A1) |
+| `is_admin` | boolean | not null, default false | global admin privilege; admin ignores team scoping (ADR-0007). Existing users promoted to true by the AddUserManagement migration (ASR-5). |
+| `is_blocked` | boolean | not null, default false | hard access denial; blocked ⇒ cannot log in/reset, sessions purged (ADR-0007, ASR-2) |
 | `created_at` | timestamptz | not null | server-set UTC |
+
+#### UserTeam  *(membership join — [ADR-0007])*
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | uuid | PK | |
+| `user_id` | uuid | FK → User.id, **ON DELETE CASCADE**, not null, indexed | membership owned by the user |
+| `team_id` | uuid | FK → Team.id, **ON DELETE CASCADE**, not null, indexed | membership owned by the team |
+| `created_at` | timestamptz | not null | when membership was granted |
+
+Unique index `ux_user_teams_user_team (user_id, team_id)` — a user cannot be in the same team twice (INV-1). Secondary index on `team_id` for "members of team T". CASCADE on both FKs because membership is an association (not authored content); it does **not** relax the Team→Ticket/Epic RESTRICT guards.
 
 #### EmailVerificationToken
 | Column | Type | Constraints | Notes |
@@ -178,6 +190,7 @@ Enforced at **both** the DB (FK behaviors below) **and** the service layer, so d
 | Epic → Ticket | **RESTRICT** | Cannot delete an epic referenced by tickets → 409 (V12). |
 | User → Ticket (created_by) / Comment (author) | **RESTRICT** | No user-delete in scope; protects authorship integrity. |
 | User → EmailVerificationToken / Session | **CASCADE** | Auth artifacts are owned by the user. |
+| User → UserTeam / Team → UserTeam | **CASCADE** | Membership is an association, not authored content; dropping a user or team drops its membership rows (ADR-0007). |
 
 The service performs an explicit existence check before delete and returns the proper `409` envelope (with `code`) rather than surfacing a raw FK violation — but the FK RESTRICT is the backstop that guarantees correctness even on a direct API call (EC7).
 
@@ -257,36 +270,46 @@ erDiagram
 
 ## 5. API surface (summary)
 
-The complete contract — every request/response body, example, and status code — is in [`API_CONTRACT.md`](./API_CONTRACT.md). Summary of routes and auth:
+The complete contract — every request/response body, example, and status code — is in [`API_CONTRACT.md`](./API_CONTRACT.md). Summary of routes and auth.
+
+**Auth legend (ADR-0007):** `no` = public; `auth` = any verified, non-blocked session; `A` = admin only; `M(team)` = admin OR member of the resource's team.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| POST | `/api/auth/signup` | no | Create unverified account, send verification email |
-| POST | `/api/auth/login` | no | Issue session token for a verified account |
-| POST | `/api/auth/logout` | yes | Invalidate the current session token |
-| POST | `/api/auth/verify-email` | no | Consume single-use token, mark verified |
-| POST | `/api/auth/resend-verification` | no | Issue new token, invalidate prior unused |
-| GET | `/api/auth/me` | yes | Current user (email, verified) for SPA bootstrap |
-| GET | `/api/teams` | yes | List teams with ticket & epic counts |
-| POST | `/api/teams` | yes | Create team |
-| PUT | `/api/teams/{id}` | yes | Rename team |
-| DELETE | `/api/teams/{id}` | yes | Delete team (409 if has tickets/epics) |
-| GET | `/api/epics?teamId=` | yes | List epics for a team with referencing-ticket counts |
-| POST | `/api/epics` | yes | Create epic |
-| PUT | `/api/epics/{id}` | yes | Edit title/description (team immutable) |
-| DELETE | `/api/epics/{id}` | yes | Delete epic (409 if referenced) |
-| GET | `/api/tickets?teamId=&type=&epicId=&search=` | yes | List/filter tickets for a team's board |
-| GET | `/api/tickets/{id}` | yes | Ticket detail (all fields) |
-| POST | `/api/tickets` | yes | Create ticket |
-| PUT | `/api/tickets/{id}` | yes | Edit fields/state (modified_at semantics) |
-| PATCH | `/api/tickets/{id}/state` | yes | Drag-and-drop state change (persist immediately) |
-| DELETE | `/api/tickets/{id}` | yes | Delete ticket (cascade comments) |
-| GET | `/api/tickets/{id}/comments` | yes | List comments oldest-first |
-| POST | `/api/tickets/{id}/comments` | yes | Add comment (no modified_at bump) |
+| POST | `/api/auth/signup` | no | Create unverified **member** account, send verification email |
+| POST | `/api/auth/login` | no | Issue session for a verified, non-blocked account (blocked → 401 account_blocked) |
+| POST | `/api/auth/logout` | auth | Invalidate the current session token |
+| POST | `/api/auth/verify-email` | no | Consume token, mark verified, grant default-team membership (req 8) |
+| POST | `/api/auth/resend-verification` | no | Issue new token (non-committal; blocked accounts get none) |
+| GET | `/api/auth/me` | auth | Current user incl. `isAdmin`, `isBlocked`, `teams[]` for SPA bootstrap |
+| GET | `/api/teams` | auth | List teams — admin: all; member: their teams only |
+| POST | `/api/teams` | **A** | Create team |
+| PUT | `/api/teams/{id}` | **A** | Rename team |
+| DELETE | `/api/teams/{id}` | **A** | Delete team (409 if has tickets/epics) |
+| PUT | `/api/teams/{id}/wip-limits` | **M(team)** | Set per-state WIP caps |
+| GET | `/api/epics?teamId=` | **M(team)** | List epics for a team |
+| POST | `/api/epics` | **M(team)** | Create epic |
+| PUT | `/api/epics/{id}` | **M(team of epic)** | Edit title/description (team immutable) |
+| DELETE | `/api/epics/{id}` | **M(team of epic)** | Delete epic (409 if referenced) |
+| GET | `/api/tickets?teamId=&type=&epicId=&search=` | **M(team)** | Board for a team |
+| GET | `/api/tickets/{id}` | **M(team of ticket)** | Ticket detail (IDOR guard) |
+| POST | `/api/tickets` | **M(team)** | Create ticket |
+| PUT | `/api/tickets/{id}` | **M(team of ticket)** | Edit (checks current AND target team) |
+| PATCH | `/api/tickets/{id}/state` | **M(team of ticket)** | Drag-and-drop state change |
+| DELETE | `/api/tickets/{id}` | **M(team of ticket)** | Delete ticket (cascade comments) |
+| GET | `/api/tickets/{id}/comments` | **M(team of ticket)** | List comments oldest-first |
+| POST | `/api/tickets/{id}/comments` | **M(team of ticket)** | Add comment (no modified_at bump) |
+| GET | `/api/admin/users` | **A** | List all users (status, role, membership) |
+| POST | `/api/admin/users` | **A** | Create active + pre-verified user |
+| PUT | `/api/admin/users/{id}/role` | **A** | Set isAdmin (last-admin guard on demote) |
+| PUT | `/api/admin/users/{id}/teams` | **A** | Replace membership set |
+| POST | `/api/admin/users/{id}/block` | **A** | Block (last-admin guard; purge sessions) |
+| POST | `/api/admin/users/{id}/unblock` | **A** | Unblock |
+| POST | `/api/admin/users/{id}/reset-password` | **A** | Generate password once (blocked → 403; purge sessions) |
 | GET | `/health/live` | no | Liveness |
 | GET | `/health/ready` | no | Readiness (DB reachable + migrations applied) |
 
-Auth transport: bearer token in `Authorization` header; never in URLs. The single-use verification token appears only in the emailed link (source §9, **[ADR-0006]**).
+Auth transport: bearer token in `Authorization` header; never in URLs. The single-use verification token appears only in the emailed link (source §9, **[ADR-0006]**). Authorization is enforced **server-side per resource** in the Application services (`RequireAdmin` / `RequireTeamAccess`), with a complementary admin-zone middleware gate on `/api/admin/*` (ADR-0007).
 
 ---
 
@@ -391,6 +414,7 @@ No secrets in git. `.env.example` (committed, with safe defaults) documents ever
 | `SMTP_USE_STARTTLS` | api | `true` | TLS upgrade |
 | `EMAIL_FROM` | api | `no-reply@ticketing.local` | From header |
 | `FRONTEND_URL` | api | `http://localhost:8080` | Base for verification links (A30, must be env-configurable so QA links resolve) |
+| `DEFAULT_SIGNUP_TEAM_NAME` | api | `Demo Team` | Team a self-registered user joins after verifying their email (req 8, ADR-0007/0008). Matched by normalized name; if absent, no membership + a warning log. The migration never auto-creates it. |
 | `RUN_MIGRATIONS_ON_STARTUP` | api | `true` | Auto-apply EF migrations **[ADR-0003]** |
 | `WEB_PORT` | compose | `8080` | Host port for nginx |
 

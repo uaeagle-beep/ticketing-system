@@ -17,11 +17,13 @@ public sealed class EpicService
 {
     private readonly IAppDbContext _db;
     private readonly IClock _clock;
+    private readonly ICurrentUser _currentUser;
 
-    public EpicService(IAppDbContext db, IClock clock)
+    public EpicService(IAppDbContext db, IClock clock, ICurrentUser currentUser)
     {
         _db = db;
         _clock = clock;
+        _currentUser = currentUser;
     }
 
     public async Task<IReadOnlyList<EpicDto>> ListByTeamAsync(Guid? teamId, CancellationToken ct)
@@ -33,6 +35,9 @@ public sealed class EpicService
         var teamExists = await _db.Teams.AnyAsync(t => t.Id == teamId, ct);
         if (!teamExists)
             throw ServiceException.NotFound("Team not found.");
+
+        // Team-scope: a member may only list epics for a team they belong to (ADR-0007, §4.9).
+        _currentUser.RequireTeamAccess(teamId.Value);
 
         return await _db.Epics.AsNoTracking()
             .Where(e => e.TeamId == teamId)
@@ -67,6 +72,9 @@ public sealed class EpicService
         if (!teamExists)
             throw ServiceException.Validation("teamId", "The specified team does not exist.");
 
+        // Team-scope: the body teamId must be accessible (ADR-0007, §4.9).
+        _currentUser.RequireTeamAccess(request.TeamId.Value);
+
         var now = _clock.UtcNow;
         var epic = new Epic
         {
@@ -87,6 +95,8 @@ public sealed class EpicService
     {
         var epic = await _db.Epics.FirstOrDefaultAsync(e => e.Id == id, ct)
             ?? throw ServiceException.NotFound("Epic not found.");
+        // Resolve-then-check: a member may only edit an epic in a team they belong to (§3.3, anti-IDOR).
+        _currentUser.RequireTeamAccess(epic.TeamId);
 
         var title = Normalization.Trim(request.Title);
         if (Normalization.IsBlank(title))
@@ -119,6 +129,8 @@ public sealed class EpicService
     {
         var epic = await _db.Epics.FirstOrDefaultAsync(e => e.Id == id, ct)
             ?? throw ServiceException.NotFound("Epic not found.");
+        // Resolve-then-check: a member may only delete an epic in a team they belong to (§3.3, anti-IDOR).
+        _currentUser.RequireTeamAccess(epic.TeamId);
 
         var referenced = await _db.Tickets.AnyAsync(t => t.EpicId == id, ct);
         if (referenced)

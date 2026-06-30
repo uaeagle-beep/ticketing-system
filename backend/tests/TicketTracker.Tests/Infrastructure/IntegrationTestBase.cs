@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 
 namespace TicketTracker.Tests.Infrastructure;
 
@@ -38,9 +39,81 @@ public abstract class IntegrationTestBase : IDisposable
 
     protected const string DefaultPassword = "correct horse battery";
 
-    /// <summary>Signup, extract the emailed token, verify, and log in. Returns (token, userId, email).</summary>
-    protected async Task<(string Token, Guid UserId, string Email)> RegisterVerifiedUserAsync(
+    /// <summary>
+    /// Signup → verify → login. Returns (token, userId, email). After the authorization model
+    /// (ADR-0007) a freshly self-registered user is a TEAM-LESS MEMBER, which would lack access to
+    /// the team-scoped surface most existing tests exercise. Per design §6.3 the default test
+    /// principal is therefore PROMOTED TO ADMIN here, so business-rule tests keep full access; the
+    /// dedicated authz tests use <see cref="RegisterMemberInTeamAsync"/> / <see cref="RegisterMemberAsync"/>.
+    /// </summary>
+    protected Task<(string Token, Guid UserId, string Email)> RegisterVerifiedUserAsync(
         string? email = null, string password = DefaultPassword)
+        => RegisterAdminAsync(email, password);
+
+    /// <summary>Signup → verify → login → promote to admin. Returns (token, userId, email).</summary>
+    protected async Task<(string Token, Guid UserId, string Email)> RegisterAdminAsync(
+        string? email = null, string password = DefaultPassword)
+    {
+        var (token, userId, resolvedEmail) = await SignupVerifyLoginAsync(email, password);
+        await Factory.WithDbAsync(async db =>
+        {
+            var user = await db.Users.FirstAsync(u => u.Id == userId);
+            user.IsAdmin = true;
+            await db.SaveChangesAsync();
+        });
+        return (token, userId, resolvedEmail);
+    }
+
+    /// <summary>Signup → verify → login as a plain (team-less) MEMBER. Returns (token, userId, email).</summary>
+    protected Task<(string Token, Guid UserId, string Email)> RegisterMemberAsync(
+        string? email = null, string password = DefaultPassword)
+        => SignupVerifyLoginAsync(email, password);
+
+    /// <summary>
+    /// Signup → verify → login as a MEMBER, then grant membership in the given team(s) directly in the
+    /// DB (the authz tests' building block). Returns (token, userId, email).
+    /// </summary>
+    protected async Task<(string Token, Guid UserId, string Email)> RegisterMemberInTeamAsync(
+        params Guid[] teamIds)
+    {
+        var (token, userId, email) = await SignupVerifyLoginAsync(null, DefaultPassword);
+        await AddMembershipAsync(userId, teamIds);
+        return (token, userId, email);
+    }
+
+    /// <summary>Grant the user membership in the given team(s) directly in persistence.</summary>
+    protected Task AddMembershipAsync(Guid userId, params Guid[] teamIds)
+        => Factory.WithDbAsync(async db =>
+        {
+            var now = Factory.Clock.UtcNow;
+            foreach (var teamId in teamIds)
+            {
+                var already = await db.UserTeams.AnyAsync(m => m.UserId == userId && m.TeamId == teamId);
+                if (!already)
+                    db.UserTeams.Add(new TicketTracker.Domain.Entities.UserTeam
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = userId,
+                        TeamId = teamId,
+                        CreatedAt = now
+                    });
+            }
+            await db.SaveChangesAsync();
+        });
+
+    /// <summary>Block a user and purge their sessions directly in persistence (mirrors the admin op).</summary>
+    protected Task BlockUserAsync(Guid userId)
+        => Factory.WithDbAsync(async db =>
+        {
+            var user = await db.Users.FirstAsync(u => u.Id == userId);
+            user.IsBlocked = true;
+            var sessions = await db.Sessions.Where(s => s.UserId == userId).ToListAsync();
+            db.Sessions.RemoveRange(sessions);
+            await db.SaveChangesAsync();
+        });
+
+    private async Task<(string Token, Guid UserId, string Email)> SignupVerifyLoginAsync(
+        string? email, string password)
     {
         email ??= $"user-{Guid.NewGuid():N}@dataart.com";
 

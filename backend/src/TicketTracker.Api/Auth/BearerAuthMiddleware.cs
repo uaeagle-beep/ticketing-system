@@ -52,14 +52,23 @@ public sealed class BearerAuthMiddleware
             return;
         }
 
-        var user = await authService.ResolveSessionUserAsync(token, context.RequestAborted);
-        if (user is null)
+        var principal = await authService.ResolveSessionUserAsync(token, context.RequestAborted);
+        if (principal is null)
         {
             await WriteUnauthorizedAsync(context);
             return;
         }
 
-        currentUser.Set(user.Id);
+        currentUser.Set(principal.UserId, principal.IsAdmin, principal.TeamIds.ToHashSet());
+
+        // Admin-zone gate (ADR-0007, R-3): a fast 403 for an authenticated non-admin hitting /api/admin/*.
+        // This complements — and never replaces — the authoritative UserAdminService.RequireAdmin().
+        if (path.StartsWith("/api/admin/", StringComparison.OrdinalIgnoreCase) && !principal.IsAdmin)
+        {
+            await WriteForbiddenAsync(context);
+            return;
+        }
+
         await _next(context);
     }
 
@@ -82,6 +91,16 @@ public sealed class BearerAuthMiddleware
         var envelope = new ErrorEnvelope(new ErrorBody(
             ServiceErrorCodes.ToWire(ServiceErrorCode.Unauthorized),
             "Authentication is required."));
+        await context.Response.WriteAsync(JsonSerializer.Serialize(envelope, _json));
+    }
+
+    private async Task WriteForbiddenAsync(HttpContext context)
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        context.Response.ContentType = "application/json; charset=utf-8";
+        var envelope = new ErrorEnvelope(new ErrorBody(
+            ServiceErrorCodes.ToWire(ServiceErrorCode.Forbidden),
+            "Admin access required."));
         await context.Response.WriteAsync(JsonSerializer.Serialize(envelope, _json));
     }
 }

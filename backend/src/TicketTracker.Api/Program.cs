@@ -36,6 +36,7 @@ builder.Services.Configure<AuthOptions>(o =>
     o.TokenTtlHours = config.GetValue("TOKEN_TTL_HOURS", 24);
     o.SessionTtlHours = config.GetValue("SESSION_TTL_HOURS", 72);
     o.FrontendUrl = config.GetValue("FRONTEND_URL", "http://localhost:8080") ?? "http://localhost:8080";
+    o.DefaultSignupTeamName = config.GetValue("DEFAULT_SIGNUP_TEAM_NAME", "Demo Team") ?? "Demo Team";
 });
 
 builder.Services.Configure<SmtpOptions>(o =>
@@ -57,6 +58,12 @@ builder.Services.AddInfrastructureAdapters(builder.Configuration, builder.Enviro
 
 // ---------- Application services ----------
 builder.Services.AddApplicationServices();
+
+// Strong-password generator for admin-created accounts / resets (ADR-0007). Registered here (not in
+// the Infrastructure adapters extension, which is out of scope for this change) — it is a stateless
+// CSPRNG adapter with no configuration.
+builder.Services.AddSingleton<TicketTracker.Application.Abstractions.IPasswordGenerator,
+    TicketTracker.Infrastructure.Security.CryptoPasswordGenerator>();
 
 // ---------- Auth current-user (scoped); exposed via ICurrentUser ----------
 builder.Services.AddScoped<CurrentUserAccessor>();

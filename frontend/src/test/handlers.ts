@@ -11,6 +11,7 @@
 
 import { http, HttpResponse } from 'msw';
 import type {
+  AdminUser,
   AuthUser,
   Board,
   Comment,
@@ -26,10 +27,15 @@ export const API = '/api';
 
 // ---- Canonical sample data (contract-shaped) -------------------------------
 
+// Default principal is an ADMIN (mirrors the backend default test principal, design §6.3) so the
+// existing happy-path UI tests retain full access. Tests that need a member override /auth/me.
 export const sampleUser: AuthUser = {
   id: '8e29c1b4-0000-4000-8000-000000000001',
   email: 'alex@dataart.com',
   emailVerified: true,
+  isAdmin: true,
+  isBlocked: false,
+  teams: [],
 };
 
 export const sampleLogin: LoginResponse = {
@@ -86,6 +92,30 @@ export const sampleComment: Comment = {
   authorEmail: sampleUser.email,
   body: 'Looks fixed.',
   createdAt: '2026-06-23T13:00:00Z',
+};
+
+// ---- Admin user-management sample data (API_CONTRACT §8) --------------------
+
+export const sampleAdminUser: AdminUser = {
+  id: sampleUser.id,
+  email: sampleUser.email,
+  isAdmin: true,
+  isBlocked: false,
+  emailVerified: true,
+  status: 'active',
+  createdAt: '2026-06-20T08:00:00Z',
+  teams: [],
+};
+
+export const sampleMemberUser: AdminUser = {
+  id: '8e29c1b4-0000-4000-8000-000000000002',
+  email: 'dev@dataart.com',
+  isAdmin: false,
+  isBlocked: false,
+  emailVerified: true,
+  status: 'active',
+  createdAt: '2026-06-21T09:00:00Z',
+  teams: [{ id: sampleTeam.id, name: sampleTeam.name }],
 };
 
 // A board with all five columns in workflow order (FR-E6-2), one card in `new`.
@@ -193,4 +223,19 @@ export const handlers = [
   // Comments (§7)
   http.get(`${API}/tickets/:id/comments`, () => ok<Comment[]>([sampleComment], 200)),
   http.post(`${API}/tickets/:id/comments`, () => ok<Comment>(sampleComment, 201)),
+
+  // Admin — User Management (§8, admin-only)
+  http.get(`${API}/admin/users`, () => ok<AdminUser[]>([sampleAdminUser, sampleMemberUser], 200)),
+  http.post(`${API}/admin/users`, () =>
+    ok({ user: sampleMemberUser, generatedPassword: 'Xk9$mPq2vLr7Wn4t' }, 201),
+  ),
+  http.put(`${API}/admin/users/:id/role`, () => ok<AdminUser>(sampleMemberUser, 200)),
+  http.put(`${API}/admin/users/:id/teams`, () => ok<AdminUser>(sampleMemberUser, 200)),
+  http.post(`${API}/admin/users/:id/block`, () =>
+    ok<AdminUser>({ ...sampleMemberUser, isBlocked: true, status: 'blocked' }, 200),
+  ),
+  http.post(`${API}/admin/users/:id/unblock`, () => ok<AdminUser>(sampleMemberUser, 200)),
+  http.post(`${API}/admin/users/:id/reset-password`, () =>
+    ok({ generatedPassword: 'Nw7&pQz3xKr9Vm2t' }, 200),
+  ),
 ];

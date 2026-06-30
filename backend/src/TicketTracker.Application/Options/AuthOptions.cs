@@ -14,4 +14,11 @@ public sealed class AuthOptions
 
     /// <summary>Base URL for verification links (env FRONTEND_URL). Link = {FrontendUrl}/verify-email?token=RAW.</summary>
     public string FrontendUrl { get; set; } = "http://localhost:8080";
+
+    /// <summary>
+    /// Team a self-registered user joins after verifying their email (env DEFAULT_SIGNUP_TEAM_NAME,
+    /// default "Demo Team", req 8 / ADR-0008). Matched by normalized name; if no such team exists the
+    /// user gets no membership and a warning is logged. Admin-created users never traverse this path.
+    /// </summary>
+    public string DefaultSignupTeamName { get; set; } = "Demo Team";
 }

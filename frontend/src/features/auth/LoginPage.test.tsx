@@ -96,4 +96,28 @@ describe('LoginPage', () => {
 
     expect(await screen.findByText('Invalid email or password.')).toBeInTheDocument();
   });
+
+  it('shows a clear blocked message on account_blocked (401) and does not offer resend', async () => {
+    server.use(
+      http.post(`${API}/auth/login`, () =>
+        HttpResponse.json(
+          { error: { code: 'account_blocked', message: 'srv' } },
+          { status: 401 },
+        ),
+      ),
+    );
+
+    const { user } = renderWithProviders(<LoginPage />);
+    await user.type(screen.getByLabelText('Email'), 'blocked@dataart.com');
+    await user.type(screen.getByLabelText('Password'), 'correct horse battery');
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+
+    expect(
+      await screen.findByText('This account has been blocked. Contact an administrator.'),
+    ).toBeInTheDocument();
+    // A blocked account must NOT see the verification-resend affordance.
+    expect(
+      screen.queryByText('Your account is not verified. Request a new verification email below.'),
+    ).not.toBeInTheDocument();
+  });
 });

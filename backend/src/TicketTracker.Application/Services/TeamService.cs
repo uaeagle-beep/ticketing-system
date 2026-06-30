@@ -18,17 +18,27 @@ public sealed class TeamService
 {
     private readonly IAppDbContext _db;
     private readonly IClock _clock;
+    private readonly ICurrentUser _currentUser;
 
-    public TeamService(IAppDbContext db, IClock clock)
+    public TeamService(IAppDbContext db, IClock clock, ICurrentUser currentUser)
     {
         _db = db;
         _clock = clock;
+        _currentUser = currentUser;
     }
 
     public async Task<IReadOnlyList<TeamDto>> ListAsync(CancellationToken ct)
     {
+        // Membership-scoped list (ADR-0007): admin sees all teams; a member sees only their teams.
+        var query = _db.Teams.AsNoTracking().AsQueryable();
+        if (!_currentUser.IsAdmin)
+        {
+            var teamIds = _currentUser.TeamIds;
+            query = query.Where(t => teamIds.Contains(t.Id));
+        }
+
         // Project counts + WIP limits at the DB level so the list scales (Wireframe 4 columns).
-        var rows = await _db.Teams.AsNoTracking()
+        var rows = await query
             .OrderBy(t => t.NameNormalized)
             .Select(t => new
             {
@@ -51,6 +61,8 @@ public sealed class TeamService
 
     public async Task<TeamDto> CreateAsync(CreateTeamRequest request, CancellationToken ct)
     {
+        _currentUser.RequireAdmin(); // team CRUD is admin-only (ADR-0007, §4.9)
+
         var name = Normalization.Trim(request.Name);
         if (Normalization.IsBlank(name))
             throw ServiceException.Validation("name", "Team name is required.");
@@ -82,6 +94,8 @@ public sealed class TeamService
 
     public async Task<TeamDto> RenameAsync(Guid id, UpdateTeamRequest request, CancellationToken ct)
     {
+        _currentUser.RequireAdmin(); // team rename is admin-only (ADR-0007, §4.9)
+
         var team = await _db.Teams.FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw ServiceException.NotFound("Team not found.");
 
@@ -113,6 +127,8 @@ public sealed class TeamService
 
     public async Task DeleteAsync(Guid id, CancellationToken ct)
     {
+        _currentUser.RequireAdmin(); // team delete is admin-only (ADR-0007, §4.9)
+
         var team = await _db.Teams.FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw ServiceException.NotFound("Team not found.");
 
@@ -136,8 +152,10 @@ public sealed class TeamService
     /// </summary>
     public async Task<TeamDto> SetWipLimitsAsync(Guid id, UpdateWipLimitsRequest request, CancellationToken ct)
     {
+        // M(team): resolve first (404 if absent) then check access (403 if not a member) — §3.3 ordering.
         var team = await _db.Teams.FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw ServiceException.NotFound("Team not found.");
+        _currentUser.RequireTeamAccess(team.Id);
 
         var input = request.WipLimits ?? new Dictionary<string, JsonElement>();
 

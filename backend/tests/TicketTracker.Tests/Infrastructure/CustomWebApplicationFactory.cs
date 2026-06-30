@@ -93,6 +93,18 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
         });
     }
 
+    /// <summary>
+    /// Run an action against a scoped <see cref="AppDbContext"/> over the SAME in-memory database the
+    /// app uses. Lets authz tests seed/mutate persistence directly (e.g. promote a user to admin,
+    /// add a membership, block a user) without an HTTP bootstrap path that does not yet exist.
+    /// </summary>
+    public async Task WithDbAsync(Func<AppDbContext, Task> action)
+    {
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await action(db);
+    }
+
     private static void RemoveAll(IServiceCollection services, Type serviceType)
     {
         var toRemove = services.Where(d => d.ServiceType == serviceType).ToList();

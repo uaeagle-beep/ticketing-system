@@ -39,6 +39,9 @@ public sealed class TicketService
         if (!teamExists)
             throw ServiceException.NotFound("Team not found.");
 
+        // Board read is team-scoped: a member may only read a team they belong to (ADR-0007, §4.9).
+        _currentUser.RequireTeamAccess(teamId.Value);
+
         var query = _db.Tickets.AsNoTracking().Where(t => t.TeamId == teamId);
 
         // Optional filters combine with AND (A24).
@@ -132,6 +135,9 @@ public sealed class TicketService
             .FirstOrDefaultAsync(ct)
             ?? throw ServiceException.NotFound("Ticket not found.");
 
+        // Resolve-then-check on the RESOURCE's team (not the request) — IDOR guard, §3.3 ordering.
+        _currentUser.RequireTeamAccess(dto.Ticket.TeamId);
+
         return ToDetail(dto.Ticket, dto.EpicTitle, dto.CreatedByEmail);
     }
 
@@ -172,6 +178,9 @@ public sealed class TicketService
         if (!teamExists)
             throw ServiceException.Validation("teamId", "The specified team does not exist.");
 
+        // Team-scope: the body teamId must be accessible (ADR-0007, §4.9).
+        _currentUser.RequireTeamAccess(teamId);
+
         await ValidateEpicForTeamAsync(request.EpicId, teamId, ct);
 
         // WIP cap on the destination state (UX §4.3). A new ticket is always an arrival.
@@ -203,6 +212,8 @@ public sealed class TicketService
     {
         var ticket = await _db.Tickets.FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw ServiceException.NotFound("Ticket not found.");
+        // Resolve-then-check on the ticket's CURRENT team (IDOR guard, §3.3).
+        _currentUser.RequireTeamAccess(ticket.TeamId);
 
         var errors = new Dictionary<string, string[]>();
 
@@ -234,6 +245,9 @@ public sealed class TicketService
         var teamExists = await _db.Teams.AnyAsync(t => t.Id == teamId, ct);
         if (!teamExists)
             throw ServiceException.Validation("teamId", "The specified team does not exist.");
+
+        // A member cannot MOVE a ticket into a team they do not belong to (§4.9, move-into-foreign-team).
+        _currentUser.RequireTeamAccess(teamId);
 
         var newEpicId = NormalizeEpicId(request.EpicId);
         // Same-team-epic enforced even on team change / direct API (V16, EC5).
@@ -274,6 +288,8 @@ public sealed class TicketService
     {
         var ticket = await _db.Tickets.FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw ServiceException.NotFound("Ticket not found.");
+        // Resolve-then-check on the ticket's team before any state change (IDOR guard, §3.3).
+        _currentUser.RequireTeamAccess(ticket.TeamId);
 
         if (!EnumCanonical.TryParseState(request.State, out var state))
             throw ServiceException.Validation("state", "Invalid ticket state.");
@@ -297,6 +313,8 @@ public sealed class TicketService
     {
         var ticket = await _db.Tickets.FirstOrDefaultAsync(t => t.Id == id, ct)
             ?? throw ServiceException.NotFound("Ticket not found.");
+        // Resolve-then-check on the ticket's team before deleting (IDOR guard, §3.3).
+        _currentUser.RequireTeamAccess(ticket.TeamId);
 
         // Comments cascade at the DB (V22). Explicitly remove tracked comments too so the
         // SQLite test provider (which honors FK cascade) and PG behave identically.

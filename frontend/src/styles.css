@@ -902,3 +902,46 @@ h4 {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Users (admin) zone ---------- */
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 500;
+}
+.checkbox-row input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+}
+.team-checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--border, #dfe1e6);
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+.team-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.generated-password-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 4px 8px;
+  border-radius: 4px;
+  user-select: all;
+  word-break: break-all;
+}

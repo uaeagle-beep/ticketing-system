@@ -9,7 +9,7 @@
 //    rollback + error toast on failure (FR-E6-5 / EC10).
 //  - Three distinct empty states (EC9): no teams; team with no tickets; filtered-to-empty.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   DndContext,
@@ -41,6 +41,24 @@ function isTicketState(value: string): value is TicketState {
   return (TICKET_STATES as readonly string[]).includes(value);
 }
 
+// Remember the last board team the user selected so a return visit reopens it ([ПРИПУЩЕННЯ UM-9]).
+// localStorage is a convenience only — the server is authoritative about which teams are accessible.
+const LAST_TEAM_KEY = 'tt.board.lastTeamId';
+function readLastTeamId(): string | null {
+  try {
+    return window.localStorage.getItem(LAST_TEAM_KEY);
+  } catch {
+    return null;
+  }
+}
+function writeLastTeamId(teamId: string): void {
+  try {
+    window.localStorage.setItem(LAST_TEAM_KEY, teamId);
+  } catch {
+    /* localStorage may be unavailable (private mode); selection just won't persist */
+  }
+}
+
 // Resolve a droppable/column id (or a card's data) to a human column label for
 // screen-reader announcements. `over.id` is a column state for an empty column,
 // or a card id when hovering a populated column — in the latter case the column
@@ -63,12 +81,21 @@ export function BoardPage() {
   const teamsQuery = useTeams();
   const teams = teamsQuery.data ?? [];
 
-  // Selected team comes from the URL; default to the first team once loaded.
+  // Selected team resolution (ADR-0007, [ПРИПУЩЕННЯ UM-9]): the URL ?team= wins (so refresh/links
+  // keep the team); else the last team the user picked (localStorage); else the first team. A team
+  // the user can no longer access (e.g. membership changed) falls through to the next candidate.
   const teamParam = searchParams.get('team') ?? undefined;
   const selectedTeamId = useMemo(() => {
     if (teamParam && teams.some((t) => t.id === teamParam)) return teamParam;
+    const lastTeamId = readLastTeamId();
+    if (lastTeamId && teams.some((t) => t.id === lastTeamId)) return lastTeamId;
     return teams[0]?.id;
   }, [teamParam, teams]);
+
+  // Remember the resolved team so the next visit (without a ?team= link) reopens it.
+  useEffect(() => {
+    if (selectedTeamId) writeLastTeamId(selectedTeamId);
+  }, [selectedTeamId]);
 
   const [filters, setFilters] = useState<BoardFilters>({});
 
