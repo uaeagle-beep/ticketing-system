@@ -18,20 +18,22 @@ import { setToken } from '@/api/tokenStore';
 // as "not visible" and would therefore see zero focusable elements. Polyfill it
 // to return a sensible parent for connected, non-hidden elements so visibility
 // checks behave like a real browser.
-if (!Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent')?.get) {
-  Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
-    configurable: true,
-    get() {
-      // Hidden elements (display:none) and detached elements have no offsetParent.
-      let node: HTMLElement | null = this as HTMLElement;
-      while (node) {
-        if (node.style && node.style.display === 'none') return null;
-        node = node.parentElement;
-      }
-      return (this as HTMLElement).parentElement ?? null;
-    },
-  });
-}
+// NOTE: jsdom already defines an `offsetParent` getter that ALWAYS returns null,
+// so a "define only if missing" guard would never install this. Override it
+// unconditionally, otherwise the visibility check sees zero focusable elements
+// and the focus trap can't move focus (ConfirmDialog focus-trap tests).
+Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+  configurable: true,
+  get() {
+    // Hidden elements (display:none) and detached elements have no offsetParent.
+    let node: HTMLElement | null = this as HTMLElement;
+    while (node) {
+      if (node.style && node.style.display === 'none') return null;
+      node = node.parentElement;
+    }
+    return (this as HTMLElement).parentElement ?? null;
+  },
+});
 
 // `onUnhandledRequest: 'error'` surfaces any /api call we forgot to mock as a
 // test failure instead of a silent network hang — keeps handlers honest.
