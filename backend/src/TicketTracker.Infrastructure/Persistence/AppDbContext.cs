@@ -23,6 +23,7 @@ public sealed class AppDbContext : DbContext, IAppDbContext
     public DbSet<Epic> Epics => Set<Epic>();
     public DbSet<Ticket> Tickets => Set<Ticket>();
     public DbSet<Comment> Comments => Set<Comment>();
+    public DbSet<WipLimit> WipLimits => Set<WipLimit>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -98,6 +99,29 @@ public sealed class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
             e.Property(x => x.ModifiedAt).HasColumnName("modified_at").IsRequired();
             e.HasIndex(x => x.NameNormalized).IsUnique(); // case-insensitive uniqueness (V8)
+        });
+
+        // ---------- WipLimit ----------
+        b.Entity<WipLimit>(e =>
+        {
+            e.ToTable("wip_limits", t =>
+            {
+                t.HasCheckConstraint("ck_wip_limits_state",
+                    "state IN ('new','ready_for_implementation','in_progress','ready_for_acceptance','done')");
+                // Value bound mirrors TeamService validation ([1, 999]) as a DB backstop.
+                t.HasCheckConstraint("ck_wip_limits_max_count", "max_count >= 1 AND max_count <= 999");
+            });
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.TeamId).HasColumnName("team_id").IsRequired();
+            e.Property(x => x.State).HasColumnName("state").HasMaxLength(32).IsRequired();
+            e.Property(x => x.MaxCount).HasColumnName("max_count").IsRequired();
+            // One limit row per (team, state) — absence means unlimited.
+            e.HasIndex(x => new { x.TeamId, x.State }).IsUnique().HasDatabaseName("ux_wip_limits_team_state");
+            e.HasOne(x => x.Team)
+                .WithMany(t => t.WipLimits)
+                .HasForeignKey(x => x.TeamId)
+                .OnDelete(DeleteBehavior.Cascade); // limits are owned by the team (deleted with it)
         });
 
         // ---------- Epic ----------

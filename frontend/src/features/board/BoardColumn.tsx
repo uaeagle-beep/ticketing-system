@@ -6,7 +6,7 @@
 import { useDroppable } from '@dnd-kit/core';
 import type { BoardColumn as BoardColumnModel } from '@/api/types';
 import { stateLabel } from '@/lib/labels';
-import { CountBadge } from '@/components/Badges';
+import { WipBadge, wipAriaSuffix } from '@/components/Badges';
 import { TicketCard } from './TicketCard';
 
 export function BoardColumn({ column }: { column: BoardColumnModel }) {
@@ -15,15 +15,21 @@ export function BoardColumn({ column }: { column: BoardColumnModel }) {
     data: { state: column.state },
   });
 
+  // The WIP badge compares against the UNFILTERED per-state total (UX §3.1), not the
+  // post-filter card count, so a full column still reads as full while a filter is active.
+  const limit = column.wipLimit;
+  const total = column.total;
+  const full = limit !== null && total >= limit;
+
   return (
     <section
       ref={setNodeRef}
-      className={`board-column${isOver ? ' drop-active' : ''}`}
-      aria-label={stateLabel(column.state)}
+      className={`board-column${isOver ? ' drop-active' : ''}${full ? ' is-full' : ''}`}
+      aria-label={`${stateLabel(column.state)}${wipAriaSuffix(total, limit)}`}
     >
       <header className="board-column-header">
         <span>{stateLabel(column.state).toUpperCase()}</span>
-        <CountBadge count={column.count} />
+        <WipBadge count={total} limit={limit} />
       </header>
       <div className="board-column-body">
         {column.tickets.length === 0 ? (

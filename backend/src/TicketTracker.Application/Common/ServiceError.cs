@@ -34,6 +34,9 @@ public enum ServiceErrorCode
     /// <summary>409 — delete epic referenced by >= 1 ticket.</summary>
     EpicReferencedByTickets,
 
+    /// <summary>409 — target (team, state) is at its WIP limit and the ticket isn't already in it.</summary>
+    WipLimitReached,
+
     /// <summary>400 — verify-email: token unknown, consumed, or expired.</summary>
     InvalidOrExpiredToken
 }
@@ -56,6 +59,7 @@ public static class ServiceErrorCodes
         ServiceErrorCode.DuplicateTeamName => "duplicate_team_name",
         ServiceErrorCode.TeamHasChildren => "team_has_children",
         ServiceErrorCode.EpicReferencedByTickets => "epic_referenced_by_tickets",
+        ServiceErrorCode.WipLimitReached => "wip_limit_reached",
         ServiceErrorCode.InvalidOrExpiredToken => "invalid_or_expired_token",
         _ => "error"
     };

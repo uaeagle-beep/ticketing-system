@@ -45,6 +45,13 @@ export const sampleTeam: Team = {
   epicCount: 3,
   createdAt: '2026-06-20T08:00:00Z',
   modifiedAt: '2026-06-22T10:15:00Z',
+  wipLimits: {
+    new: null,
+    ready_for_implementation: 5,
+    in_progress: 3,
+    ready_for_acceptance: null,
+    done: null,
+  },
 };
 
 export const sampleEpic: Epic = {
@@ -90,6 +97,8 @@ export function makeBoard(overrides: Partial<Board> = {}): Board {
       {
         state: 'new',
         count: 1,
+        total: 1,
+        wipLimit: null,
         tickets: [
           {
             id: sampleTicketDetail.id,
@@ -102,10 +111,10 @@ export function makeBoard(overrides: Partial<Board> = {}): Board {
           },
         ],
       },
-      { state: 'ready_for_implementation', count: 0, tickets: [] },
-      { state: 'in_progress', count: 0, tickets: [] },
-      { state: 'ready_for_acceptance', count: 0, tickets: [] },
-      { state: 'done', count: 0, tickets: [] },
+      { state: 'ready_for_implementation', count: 0, total: 0, wipLimit: null, tickets: [] },
+      { state: 'in_progress', count: 0, total: 0, wipLimit: null, tickets: [] },
+      { state: 'ready_for_acceptance', count: 0, total: 0, wipLimit: null, tickets: [] },
+      { state: 'done', count: 0, total: 0, wipLimit: null, tickets: [] },
     ],
     ...overrides,
   };

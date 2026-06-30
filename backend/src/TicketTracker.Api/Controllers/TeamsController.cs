@@ -28,6 +28,11 @@ public sealed class TeamsController : ControllerBase
     public async Task<ActionResult<TeamDto>> Rename(Guid id, [FromBody] UpdateTeamRequest request, CancellationToken ct)
         => Ok(await _teams.RenameAsync(id, request ?? new UpdateTeamRequest(null), ct));
 
+    // ----- WIP limits (API_CONTRACT §4) -----
+    [HttpPut("{id:guid}/wip-limits")]
+    public async Task<ActionResult<TeamDto>> SetWipLimits(Guid id, [FromBody] UpdateWipLimitsRequest request, CancellationToken ct)
+        => Ok(await _teams.SetWipLimitsAsync(id, request ?? new UpdateWipLimitsRequest(null), ct));
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {

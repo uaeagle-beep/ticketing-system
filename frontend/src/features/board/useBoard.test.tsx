@@ -32,8 +32,8 @@ describe('normalizeBoard', () => {
       teamId: 'team-1',
       total: 3,
       columns: [
-        { state: 'done', count: 1, tickets: [] },
-        { state: 'new', count: 2, tickets: [] },
+        { state: 'done', count: 1, total: 1, wipLimit: null, tickets: [] },
+        { state: 'new', count: 2, total: 2, wipLimit: null, tickets: [] },
       ],
     };
     const normalized = normalizeBoard(partial);
@@ -44,6 +44,8 @@ describe('normalizeBoard', () => {
     expect(normalized.columns.find((c) => c.state === 'in_progress')).toEqual({
       state: 'in_progress',
       count: 0,
+      total: 0,
+      wipLimit: null,
       tickets: [],
     });
   });

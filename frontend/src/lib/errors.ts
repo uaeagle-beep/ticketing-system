@@ -11,6 +11,8 @@ const FRIENDLY: Record<string, string> = {
   epic_referenced_by_tickets:
     'Cannot delete an epic that is referenced by tickets. Reassign or remove those tickets first.',
   epic_team_mismatch: 'The selected epic does not belong to the ticket’s team.',
+  wip_limit_reached:
+    'This status already has the maximum number of tickets — finish existing ones first.',
   invalid_credentials: 'Invalid email or password.',
   account_not_verified:
     'Your account is not verified. Check your email or request a new verification link.',

@@ -47,6 +47,7 @@ Every non-2xx response uses this exact shape:
 | 409 | `duplicate_team_name` | Team create/rename collides case-insensitively |
 | 409 | `team_has_children` | Delete team that has tickets or epics |
 | 409 | `epic_referenced_by_tickets` | Delete epic referenced by ≥1 ticket |
+| 409 | `wip_limit_reached` | Create/move a ticket INTO a (team, state) whose WIP limit is already reached |
 | 400 | `invalid_or_expired_token` | verify-email: token unknown, consumed, or expired |
 
 **Rule:** `400` = bad/ill-formed payload (incl. a non-existent reference passed in the body); `404` = the URL-path resource is absent; `409` = conflict with persisted state (uniqueness or protective delete-guard). Applied uniformly.
@@ -153,9 +154,12 @@ Team object:
 {
   "id": "f1c2...", "name": "Platform",
   "ticketCount": 12, "epicCount": 3,
-  "createdAt": "2026-06-20T08:00:00Z", "modifiedAt": "2026-06-22T10:15:00Z"
+  "createdAt": "2026-06-20T08:00:00Z", "modifiedAt": "2026-06-22T10:15:00Z",
+  "wipLimits": { "new": null, "ready_for_implementation": 5, "in_progress": 3,
+                 "ready_for_acceptance": null, "done": null }
 }
 ```
+- `wipLimits` — the per-team WIP (Work-In-Progress) cap per state. **All five states are always present**; a value of `null` means that state is **unlimited**, an integer (1–999) is the cap. A fresh team has every state `null`. (UX_LIMITS spec; ADR-0006.)
 
 ### 4.1 `GET /api/teams` — authenticated
 Lists all teams (no ownership; all verified users see all — source §4) with counts (Wireframe 4).
@@ -163,8 +167,8 @@ Lists all teams (no ownership; all verified users see all — source §4) with c
 **200 OK**
 ```json
 [
-  { "id": "f1c2...", "name": "Platform", "ticketCount": 12, "epicCount": 3, "createdAt": "2026-06-20T08:00:00Z", "modifiedAt": "2026-06-22T10:15:00Z" },
-  { "id": "a7d9...", "name": "Payments", "ticketCount": 0, "epicCount": 0, "createdAt": "2026-06-21T09:00:00Z", "modifiedAt": "2026-06-21T09:00:00Z" }
+  { "id": "f1c2...", "name": "Platform", "ticketCount": 12, "epicCount": 3, "createdAt": "2026-06-20T08:00:00Z", "modifiedAt": "2026-06-22T10:15:00Z", "wipLimits": { "new": null, "ready_for_implementation": 5, "in_progress": 3, "ready_for_acceptance": null, "done": null } },
+  { "id": "a7d9...", "name": "Payments", "ticketCount": 0, "epicCount": 0, "createdAt": "2026-06-21T09:00:00Z", "modifiedAt": "2026-06-21T09:00:00Z", "wipLimits": { "new": null, "ready_for_implementation": null, "in_progress": null, "ready_for_acceptance": null, "done": null } }
 ]
 ```
 Empty: `[]` (SPA shows "no teams" empty state, EC9).
@@ -200,6 +204,28 @@ Empty: `[]` (SPA shows "no teams" empty state, EC9).
 - `409 team_has_children` — team has any ticket OR epic; nothing deleted, no cascade (V9, EC7):
 ```json
 { "error": { "code": "team_has_children", "message": "Cannot delete a team that still has tickets or epics. Remove them first." } }
+```
+
+### 4.5 `PUT /api/teams/{id}/wip-limits` — authenticated (set per-state WIP limits)
+
+Replaces this team's per-state WIP caps in one request. The body is a map of canonical state → limit; a value of `null` (or an **omitted** state) means **unlimited** for that state. The request is the authoritative full set: a state not present is cleared to unlimited.
+
+**Request**
+```json
+{ "wipLimits": { "in_progress": 3, "ready_for_implementation": 5, "new": null } }
+```
+- Each value must be **`null`** (unlimited) **or an integer in `[1, 999]`**. Anything else — `0`, negative, fractional (`2.5`), non-numeric (`"abc"`), `> 999`, or an **unknown state key** — is rejected.
+- Setting a cap **below** the current count in that column is **allowed** — only *new* arrivals are blocked; existing over-limit tickets remain (the column then reads as over-limit on the board).
+
+**200 OK** → the updated **Team object** (with the new `wipLimits` map for all five states).
+
+**Errors:**
+- `404 not_found` — unknown team id.
+- `400 validation_error` — one or more invalid values; `errors` is keyed by the offending **state** name:
+```json
+{ "error": { "code": "validation_error", "message": "One or more WIP limits are invalid.",
+  "errors": { "in_progress": ["Enter a whole number of 1 or more, or leave blank for no limit."],
+              "done": ["Enter a number no greater than 999."] } } }
 ```
 
 ---
@@ -276,22 +302,25 @@ Board data for one team. `teamId` **required**. Optional filters combine with **
 - `epicId` — UUID; filters to tickets referencing that epic.
 - `search` — case-insensitive substring over **title only** (A24).
 
-**200 OK** — tickets grouped by state, in workflow order, each group ordered by `modifiedAt DESC` (A22). Counts reflect the **filtered** set (A23):
+**200 OK** — tickets grouped by state, in workflow order, each group ordered by `modifiedAt DESC` (A22). Per-column `count` reflects the **filtered** set (A23); per-column `total` and `wipLimit` support the WIP badge:
 ```json
 {
   "teamId": "f1c2...",
   "total": 37,
   "columns": [
-    { "state": "new", "count": 10, "tickets": [ { "id": "...", "type": "bug", "state": "new", "title": "Login fails", "epicId": "ep01...", "epicTitle": "Billing Revamp", "modifiedAt": "2026-06-23T12:40:00Z" } ] },
-    { "state": "ready_for_implementation", "count": 6, "tickets": [] },
-    { "state": "in_progress", "count": 8, "tickets": [] },
-    { "state": "ready_for_acceptance", "count": 5, "tickets": [] },
-    { "state": "done", "count": 8, "tickets": [] }
+    { "state": "new", "count": 10, "total": 10, "wipLimit": null, "tickets": [ { "id": "...", "type": "bug", "state": "new", "title": "Login fails", "epicId": "ep01...", "epicTitle": "Billing Revamp", "modifiedAt": "2026-06-23T12:40:00Z" } ] },
+    { "state": "ready_for_implementation", "count": 6, "total": 6, "wipLimit": 5, "tickets": [] },
+    { "state": "in_progress", "count": 8, "total": 8, "wipLimit": 3, "tickets": [] },
+    { "state": "ready_for_acceptance", "count": 5, "total": 5, "wipLimit": null, "tickets": [] },
+    { "state": "done", "count": 8, "total": 8, "wipLimit": null, "tickets": [] }
   ]
 }
 ```
-- Card payload includes at minimum `title`, `type`, `epicTitle`, `modifiedAt` (Wireframe 1). The five `columns` are always present in workflow order even when empty (each `tickets: []`, `count: 0`) so the SPA renders exactly five columns (FR-E6-2).
-- `total` and each `count` are post-filter (A23). At 100+ tickets server-side filtering is preferred (NFR-PERF-1); equivalent client-side filtering is permitted by source §8.
+- Card payload includes at minimum `title`, `type`, `epicTitle`, `modifiedAt` (Wireframe 1). The five `columns` are always present in workflow order even when empty (each `tickets: []`, `count: 0`, `total: 0`) so the SPA renders exactly five columns (FR-E6-2).
+- `total` (board-level) and each column `count` are **post-filter** (A23). At 100+ tickets server-side filtering is preferred (NFR-PERF-1); equivalent client-side filtering is permitted by source §8.
+- Each column also carries (WIP, UX_LIMITS spec §3.1):
+  - `total` — the **UNFILTERED** per-state ticket count for the team. The WIP badge `N / max` numerator and the full/over comparison use this, so an active type/epic/search filter cannot make a full column look not-full.
+  - `wipLimit` — the team's cap for this state, or `null` when unlimited.
 
 **Errors:** `400 validation_error` (`teamId` missing, bad `type` enum, bad `epicId`); `404 not_found` (unknown team).
 
@@ -310,7 +339,10 @@ Board data for one team. `teamId` **required**. Optional filters combine with **
 - `epicId`: optional/nullable; if set, the epic must belong to `teamId` (V16) else `400 epic_team_mismatch`.
 
 **201 Created** → full ticket detail. Server sets `createdAt = modifiedAt = now` (UTC), `createdBy` = authenticated user (V18, A16). Card lands in its state column.
-**Errors:** `400 validation_error` (blank title/body, invalid `type`/`state` enum, unknown `teamId`/`epicId`); `400 epic_team_mismatch` (cross-team epic, EC5/EC13).
+**Errors:** `400 validation_error` (blank title/body, invalid `type`/`state` enum, unknown `teamId`/`epicId`); `400 epic_team_mismatch` (cross-team epic, EC5/EC13); `409 wip_limit_reached` — the target `(teamId, state)` has a WIP limit and the **unfiltered** count already in that state is ≥ the limit (UX_LIMITS spec §4.3):
+```json
+{ "error": { "code": "wip_limit_reached", "message": "This status already has the maximum number of tickets — finish existing ones first." } }
+```
 
 ### 6.4 `PUT /api/tickets/{id}` — authenticated (edit)
 Editable: `teamId`, `type`, `epicId`, `title`, `body`, `state`. `createdAt`/`createdBy` immutable (A16).
@@ -323,7 +355,7 @@ Editable: `teamId`, `type`, `epicId`, `title`, `body`, `state`. `createdAt`/`cre
 - **modified_at semantics (V19/V20, A19):** the server normalizes incoming values (trim strings, compare refs by id, enums by value). If every field equals the stored value → **no-op**: nothing persisted, `modifiedAt` NOT advanced (EC6), 200 with unchanged object. If any differs → apply and set `modifiedAt = now`.
 - **Same-team epic (V16):** if `epicId` non-null it must belong to the (possibly new) `teamId`, else `400 epic_team_mismatch` — enforced even on direct API calls and on team change (EC5). The SPA clears the epic on team change client-side (FR-E4-5).
 
-**Errors:** `404 not_found`; `400 validation_error` (blank title/body, invalid enum, unknown `teamId`/`epicId`); `400 epic_team_mismatch`.
+**Errors:** `404 not_found`; `400 validation_error` (blank title/body, invalid enum, unknown `teamId`/`epicId`); `400 epic_team_mismatch`; `409 wip_limit_reached` — when the edit MOVES the ticket into a different `(teamId, state)` that is already at its WIP limit. A no-op edit (same state) or an edit that leaves the state is never blocked (UX_LIMITS spec §4.3).
 
 ### 6.5 `PATCH /api/tickets/{id}/state` — authenticated (drag-and-drop)
 Dedicated minimal endpoint for column moves; persists immediately (V25).
@@ -338,7 +370,7 @@ Dedicated minimal endpoint for column moves; persists immediately (V25).
 ```json
 { "id": "tk1042...", "state": "done", "modifiedAt": "2026-06-24T08:00:00Z" }
 ```
-**Errors:** `404 not_found`; `400 validation_error` (invalid target state). On any non-2xx the SPA rolls the card back to its previous column and shows an error (FR-E6-5, EC10).
+**Errors:** `404 not_found`; `400 validation_error` (invalid target state); `409 wip_limit_reached` — the target state has a WIP limit and is already full (and the ticket isn't already in it). A same-state drop is a no-op and is never blocked; leaving a full state is always allowed (UX_LIMITS spec §4.2). On any non-2xx the SPA rolls the card back to its previous column and shows an error (FR-E6-5, EC10).
 
 > If the new state equals the current state, this is a no-op: `modifiedAt` is not advanced (consistent with §6.2), 200 returned.
 

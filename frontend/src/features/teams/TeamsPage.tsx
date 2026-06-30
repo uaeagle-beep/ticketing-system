@@ -6,17 +6,18 @@
 // - Delete is DISABLED while the team has tickets or epics, with an explanatory
 //   hint (the backend is still authoritative and returns 409 — surfaced as a toast).
 
-import { useState, type FormEvent } from 'react';
+import { Fragment, useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { teamsApi } from '@/api/endpoints';
 import { queryKeys } from '@/lib/queryKeys';
-import type { Team } from '@/api/types';
+import type { Team, TicketState } from '@/api/types';
 import { useTeams } from './useTeams';
 import { formatUtc } from '@/lib/time';
 import { errorMessage } from '@/lib/errors';
 import { LoadingState, ErrorState, EmptyState } from '@/components/States';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useToast } from '@/components/toast/ToastContext';
+import { WipLimitsPanel } from './WipLimitsPanel';
 
 export function TeamsPage() {
   const queryClient = useQueryClient();
@@ -28,6 +29,7 @@ export function TeamsPage() {
   const [newName, setNewName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [wipTeamId, setWipTeamId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Team | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.teams });
@@ -50,6 +52,19 @@ export function TeamsPage() {
       setEditingId(null);
       setEditingName('');
       invalidate();
+    },
+    onError: (err) => toast.showError(errorMessage(err)),
+  });
+
+  const wipMutation = useMutation({
+    mutationFn: ({ id, limits }: { id: string; limits: Partial<Record<TicketState, number | null>> }) =>
+      teamsApi.setWipLimits(id, { wipLimits: limits }),
+    onSuccess: (_team, { id }) => {
+      toast.showSuccess('WIP limits saved.');
+      setWipTeamId(null);
+      invalidate();
+      // Board badges read the limits from the board response; refresh that team's board.
+      queryClient.invalidateQueries({ queryKey: ['board', id] });
     },
     onError: (err) => toast.showError(errorMessage(err)),
   });
@@ -157,8 +172,10 @@ export function TeamsPage() {
             {teams.map((team) => {
               const hasChildren = team.ticketCount > 0 || team.epicCount > 0;
               const isEditing = editingId === team.id;
+              const isWipOpen = wipTeamId === team.id;
               return (
-                <tr key={team.id}>
+                <Fragment key={team.id}>
+                <tr>
                   <td>
                     {isEditing ? (
                       <form onSubmit={submitRename} className="row" style={{ gap: 8 }}>
@@ -205,6 +222,14 @@ export function TeamsPage() {
                       ) : null}
                       <button
                         type="button"
+                        className="btn btn-secondary btn-sm"
+                        aria-expanded={isWipOpen}
+                        onClick={() => setWipTeamId((cur) => (cur === team.id ? null : team.id))}
+                      >
+                        WIP limits
+                      </button>
+                      <button
+                        type="button"
                         className="btn btn-danger btn-sm"
                         disabled={hasChildren}
                         title={
@@ -219,6 +244,19 @@ export function TeamsPage() {
                     </div>
                   </td>
                 </tr>
+                {isWipOpen ? (
+                  <tr className="wip-panel-row">
+                    <td colSpan={5}>
+                      <WipLimitsPanel
+                        team={team}
+                        busy={wipMutation.isPending}
+                        onSave={(limits) => wipMutation.mutate({ id: team.id, limits })}
+                        onCancel={() => setWipTeamId(null)}
+                      />
+                    </td>
+                  </tr>
+                ) : null}
+                </Fragment>
               );
             })}
           </tbody>

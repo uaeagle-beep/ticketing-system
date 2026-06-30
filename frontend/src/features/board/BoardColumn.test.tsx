@@ -17,16 +17,39 @@ const card: TicketCard = {
 };
 
 function column(overrides: Partial<BoardColumnModel> = {}): BoardColumnModel {
-  return { state: 'new', count: 0, tickets: [], ...overrides };
+  return { state: 'new', count: 0, total: 0, wipLimit: null, tickets: [], ...overrides };
 }
 
 describe('BoardColumn', () => {
   it('renders the UPPERCASE state label in the header with the count badge', () => {
-    renderWithProviders(<BoardColumn column={column({ state: 'in_progress', count: 8 })} />);
+    renderWithProviders(
+      <BoardColumn column={column({ state: 'in_progress', count: 8, total: 8 })} />,
+    );
     // Header text is uppercased (Wireframe 1).
     expect(screen.getByText('IN PROGRESS')).toBeInTheDocument();
-    // Count badge.
+    // Count badge (unlimited -> plain N, using the unfiltered total).
     expect(screen.getByText('8')).toBeInTheDocument();
+  });
+
+  it('shows "N / max" and a full status on the aria-label when a limit is reached', () => {
+    renderWithProviders(
+      <BoardColumn column={column({ state: 'in_progress', count: 3, total: 3, wipLimit: 3 })} />,
+    );
+    expect(screen.getByText('3 / 3')).toBeInTheDocument();
+    // Full status is conveyed without color via the column aria-label.
+    expect(
+      screen.getByRole('region', { name: 'In progress, full (3 of 3)' }),
+    ).toBeInTheDocument();
+  });
+
+  it('shows an over-limit status on the aria-label when total exceeds the limit', () => {
+    renderWithProviders(
+      <BoardColumn column={column({ state: 'in_progress', count: 5, total: 5, wipLimit: 4 })} />,
+    );
+    expect(screen.getByText('5 / 4')).toBeInTheDocument();
+    expect(
+      screen.getByRole('region', { name: 'In progress, over limit (5 of 4)' }),
+    ).toBeInTheDocument();
   });
 
   it('labels the section with the human (non-uppercased) state label for AT', () => {

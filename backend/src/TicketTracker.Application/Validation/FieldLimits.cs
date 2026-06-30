@@ -16,4 +16,8 @@ public static class FieldLimits
     public const int TicketTitleMax = 512;
     public const int TicketBodyMax = 100_000;
     public const int CommentBodyMax = 20_000;
+
+    /// <summary>WIP limit value bounds: a set limit is an integer in [1, 999] (null = unlimited).</summary>
+    public const int WipLimitMin = 1;
+    public const int WipLimitMax = 999;
 }

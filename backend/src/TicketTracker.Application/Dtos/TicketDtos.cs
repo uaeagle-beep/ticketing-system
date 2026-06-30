@@ -46,7 +46,18 @@ public sealed record TicketCardDto(
     string? EpicTitle,
     DateTime ModifiedAt);
 
-public sealed record BoardColumnDto(string State, int Count, IReadOnlyList<TicketCardDto> Tickets);
+/// <summary>
+/// One board column. <paramref name="Count"/> is the POST-FILTER number of cards in
+/// <paramref name="Tickets"/> (A23). <paramref name="Total"/> is the UNFILTERED per-state total for the
+/// team — what the WIP badge "N / max" compares against, so a type/epic/search filter can't make a full
+/// column look not-full (UX §3.1). <paramref name="WipLimit"/> is the cap for this state (null = unlimited).
+/// </summary>
+public sealed record BoardColumnDto(
+    string State,
+    int Count,
+    int Total,
+    int? WipLimit,
+    IReadOnlyList<TicketCardDto> Tickets);
 
 public sealed record BoardDto(Guid TeamId, int Total, IReadOnlyList<BoardColumnDto> Columns);
 

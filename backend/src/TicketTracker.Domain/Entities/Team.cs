@@ -20,4 +20,7 @@ public class Team
 
     public ICollection<Epic> Epics { get; set; } = new List<Epic>();
     public ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
+
+    /// <summary>Per-state WIP caps for this team; an absent state means unlimited (V-WIP-1).</summary>
+    public ICollection<WipLimit> WipLimits { get; set; } = new List<WipLimit>();
 }

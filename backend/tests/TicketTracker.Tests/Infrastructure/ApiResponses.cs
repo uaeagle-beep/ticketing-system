@@ -30,7 +30,8 @@ public sealed record TeamDto(
     [property: JsonPropertyName("ticketCount")] int TicketCount,
     [property: JsonPropertyName("epicCount")] int EpicCount,
     [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
-    [property: JsonPropertyName("modifiedAt")] DateTime ModifiedAt);
+    [property: JsonPropertyName("modifiedAt")] DateTime ModifiedAt,
+    [property: JsonPropertyName("wipLimits")] Dictionary<string, int?>? WipLimits = null);
 
 public sealed record EpicDto(
     [property: JsonPropertyName("id")] Guid Id,
@@ -67,7 +68,9 @@ public sealed record TicketCardDto(
 public sealed record BoardColumnDto(
     [property: JsonPropertyName("state")] string State,
     [property: JsonPropertyName("count")] int Count,
-    [property: JsonPropertyName("tickets")] List<TicketCardDto> Tickets);
+    [property: JsonPropertyName("tickets")] List<TicketCardDto> Tickets,
+    [property: JsonPropertyName("total")] int Total = 0,
+    [property: JsonPropertyName("wipLimit")] int? WipLimit = null);
 
 public sealed record BoardDto(
     [property: JsonPropertyName("teamId")] Guid TeamId,

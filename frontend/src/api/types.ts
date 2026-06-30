@@ -25,6 +25,7 @@ export type ApiErrorCode =
   | 'duplicate_team_name'
   | 'team_has_children'
   | 'epic_referenced_by_tickets'
+  | 'wip_limit_reached'
   | 'invalid_or_expired_token'
   // Defensive fallback for any code not enumerated above.
   | (string & {});
@@ -55,6 +56,11 @@ export interface MessageResponse {
 }
 
 // ---- Teams (API_CONTRACT §4) ----
+
+// Per-state WIP caps: one entry per state, null = unlimited (API_CONTRACT §4).
+// All five states are always present in a Team response.
+export type WipLimits = Record<TicketState, number | null>;
+
 export interface Team {
   id: string;
   name: string;
@@ -62,6 +68,7 @@ export interface Team {
   epicCount: number;
   createdAt: string; // ISO-8601 UTC
   modifiedAt: string; // ISO-8601 UTC
+  wipLimits: WipLimits;
 }
 
 // ---- Epics (API_CONTRACT §5) ----
@@ -104,7 +111,13 @@ export interface TicketCard {
 
 export interface BoardColumn {
   state: TicketState;
+  // Post-filter card count for `tickets` (A23).
   count: number;
+  // Unfiltered per-state total for the team — the WIP badge "N / max" numerator and
+  // the full/over comparison use this so a filter can't make a full column look not-full (UX §3.1).
+  total: number;
+  // The cap for this state; null = unlimited.
+  wipLimit: number | null;
   tickets: TicketCard[];
 }
 
@@ -157,6 +170,11 @@ export interface CreateTeamRequest {
 
 export interface RenameTeamRequest {
   name: string;
+}
+
+// PUT /api/teams/{id}/wip-limits — a map of state -> cap. null (or omitted) = unlimited.
+export interface UpdateWipLimitsRequest {
+  wipLimits: Partial<Record<TicketState, number | null>>;
 }
 
 export interface CreateEpicRequest {

@@ -30,27 +30,30 @@ interface MoveArgs {
 
 function moveCardInBoard(board: Board, ticketId: string, to: TicketState): Board {
   let moved: BoardColumn['tickets'][number] | undefined;
+  let from: TicketState | undefined;
 
-  // Remove the card from whatever column currently holds it.
+  // Remove the card from whatever column currently holds it. Also decrement that
+  // column's unfiltered `total` so the WIP badge "N / max" updates optimistically (UX §3.1).
   const stripped = board.columns.map((col) => {
     const idx = col.tickets.findIndex((t) => t.id === ticketId);
     if (idx === -1) return col;
     moved = col.tickets[idx];
+    from = col.state;
     const tickets = col.tickets.filter((t) => t.id !== ticketId);
-    return { ...col, tickets, count: tickets.length };
+    return { ...col, tickets, count: tickets.length, total: Math.max(0, col.total - 1) };
   });
 
-  if (!moved) return board;
+  if (!moved || from === to) return board;
 
   const movedCard = { ...moved, state: to, modifiedAt: new Date().toISOString() };
 
-  // Insert into the target column and re-sort by modifiedAt desc.
+  // Insert into the target column, re-sort by modifiedAt desc, and bump its unfiltered total.
   const columns = stripped.map((col) => {
     if (col.state !== to) return col;
     const tickets = [...col.tickets, movedCard].sort(
       (a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime(),
     );
-    return { ...col, tickets, count: tickets.length };
+    return { ...col, tickets, count: tickets.length, total: col.total + 1 };
   });
 
   return { ...board, columns };
@@ -104,7 +107,13 @@ export function emptyBoard(teamId: string): Board {
   return {
     teamId,
     total: 0,
-    columns: orderedStates.map((state) => ({ state, count: 0, tickets: [] })),
+    columns: orderedStates.map((state) => ({
+      state,
+      count: 0,
+      total: 0,
+      wipLimit: null,
+      tickets: [],
+    })),
   };
 }
 
@@ -113,7 +122,7 @@ export function emptyBoard(teamId: string): Board {
 export function normalizeBoard(board: Board): Board {
   const byState = new Map(board.columns.map((c) => [c.state, c]));
   const columns: BoardColumn[] = orderedStates.map(
-    (state) => byState.get(state) ?? { state, count: 0, tickets: [] },
+    (state) => byState.get(state) ?? { state, count: 0, total: 0, wipLimit: null, tickets: [] },
   );
   return { ...board, columns };
 }

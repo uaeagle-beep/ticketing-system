@@ -19,6 +19,7 @@ public interface IAppDbContext
     DbSet<Epic> Epics { get; }
     DbSet<Ticket> Tickets { get; }
     DbSet<Comment> Comments { get; }
+    DbSet<WipLimit> WipLimits { get; }
 
     /// <summary>Access to the underlying provider for transactions / connectivity checks.</summary>
     DatabaseFacade Database { get; }

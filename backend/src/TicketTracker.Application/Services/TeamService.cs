@@ -1,9 +1,11 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TicketTracker.Application.Abstractions;
 using TicketTracker.Application.Common;
 using TicketTracker.Application.Dtos;
 using TicketTracker.Application.Validation;
 using TicketTracker.Domain.Entities;
+using TicketTracker.Domain.Enums;
 
 namespace TicketTracker.Application.Services;
 
@@ -25,18 +27,26 @@ public sealed class TeamService
 
     public async Task<IReadOnlyList<TeamDto>> ListAsync(CancellationToken ct)
     {
-        // Project counts at the DB level so the list scales (Wireframe 4 columns).
-        var teams = await _db.Teams.AsNoTracking()
+        // Project counts + WIP limits at the DB level so the list scales (Wireframe 4 columns).
+        var rows = await _db.Teams.AsNoTracking()
             .OrderBy(t => t.NameNormalized)
-            .Select(t => new TeamDto(
+            .Select(t => new
+            {
                 t.Id,
                 t.Name,
-                t.Tickets.Count(),
-                t.Epics.Count(),
+                TicketCount = t.Tickets.Count(),
+                EpicCount = t.Epics.Count(),
                 t.CreatedAt,
-                t.ModifiedAt))
+                t.ModifiedAt,
+                WipLimits = t.WipLimits.Select(w => new { w.State, w.MaxCount }).ToList()
+            })
             .ToListAsync(ct);
-        return teams;
+
+        return rows
+            .Select(r => new TeamDto(
+                r.Id, r.Name, r.TicketCount, r.EpicCount, r.CreatedAt, r.ModifiedAt,
+                Services.WipLimits.ToMap(r.WipLimits.Select(w => (w.State, w.MaxCount)))))
+            .ToList();
     }
 
     public async Task<TeamDto> CreateAsync(CreateTeamRequest request, CancellationToken ct)
@@ -65,7 +75,9 @@ public sealed class TeamService
         _db.Teams.Add(team);
         await _db.SaveChangesAsync(ct);
 
-        return new TeamDto(team.Id, team.Name, 0, 0, team.CreatedAt, team.ModifiedAt);
+        // A fresh team has no WIP limits (all states unlimited, V-WIP-1).
+        return new TeamDto(team.Id, team.Name, 0, 0, team.CreatedAt, team.ModifiedAt,
+            Services.WipLimits.ToMap(Array.Empty<WipLimit>()));
     }
 
     public async Task<TeamDto> RenameAsync(Guid id, UpdateTeamRequest request, CancellationToken ct)
@@ -114,10 +126,103 @@ public sealed class TeamService
         await _db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// Replace this team's per-state WIP limits (API_CONTRACT §4, UX §2.2). The request is a map of
+    /// canonical state -> value where null/omitted = unlimited and an integer in [1, 999] is a cap.
+    /// Validation (rejected with 400 validation_error + per-state errors):
+    ///   unknown state key; 0; negative; fractional/non-numeric; out of [1, 999].
+    /// Setting a cap below the current count is allowed — only NEW arrivals are blocked, existing
+    /// over-limit tickets stay (UX §1.3, §5.1). 404 if the team does not exist.
+    /// </summary>
+    public async Task<TeamDto> SetWipLimitsAsync(Guid id, UpdateWipLimitsRequest request, CancellationToken ct)
+    {
+        var team = await _db.Teams.FirstOrDefaultAsync(t => t.Id == id, ct)
+            ?? throw ServiceException.NotFound("Team not found.");
+
+        var input = request.WipLimits ?? new Dictionary<string, JsonElement>();
+
+        // Parse + validate every provided entry, collecting per-state errors keyed by the state name.
+        var errors = new Dictionary<string, string[]>();
+        var desired = new Dictionary<string, int>(StringComparer.Ordinal); // state -> cap (only set states)
+
+        foreach (var (rawState, rawValue) in input)
+        {
+            if (!EnumCanonical.TryParseState(rawState, out _))
+            {
+                errors[rawState] = new[] { "Unknown board state." };
+                continue;
+            }
+
+            // null => unlimited (no row). Anything else must be a whole number in [1, 999].
+            if (rawValue.ValueKind == JsonValueKind.Null)
+                continue;
+
+            if (rawValue.ValueKind != JsonValueKind.Number
+                || !rawValue.TryGetInt32(out var value)) // rejects fractional and non-numeric (e.g. 2.5, "abc")
+            {
+                errors[rawState] = new[] { "Enter a whole number of 1 or more, or leave blank for no limit." };
+                continue;
+            }
+
+            if (value > FieldLimits.WipLimitMax)
+                errors[rawState] = new[] { $"Enter a number no greater than {FieldLimits.WipLimitMax}." };
+            else if (value < FieldLimits.WipLimitMin)
+                errors[rawState] = new[] { "Enter a whole number of 1 or more, or leave blank for no limit." };
+            else
+                desired[rawState] = value;
+        }
+
+        if (errors.Count > 0)
+            throw ServiceException.Validation("One or more WIP limits are invalid.", errors);
+
+        // Reconcile persisted rows with the desired set: a state present in `desired` is upserted; a state
+        // explicitly set to null OR omitted stays/becomes unlimited (row removed if present). This makes the
+        // request the full authoritative limit set for the team (UX §2.3 batch save of all five fields).
+        var existing = await _db.WipLimits.Where(w => w.TeamId == id).ToListAsync(ct);
+        var byState = existing.ToDictionary(w => w.State, StringComparer.Ordinal);
+        var changed = false;
+
+        foreach (var state in EnumCanonical.WorkflowOrder)
+        {
+            var key = EnumCanonical.ToCanonical(state);
+            var hasDesired = desired.TryGetValue(key, out var max);
+            byState.TryGetValue(key, out var row);
+
+            if (hasDesired)
+            {
+                if (row is null)
+                {
+                    _db.WipLimits.Add(new WipLimit { Id = Guid.NewGuid(), TeamId = id, State = key, MaxCount = max });
+                    changed = true;
+                }
+                else if (row.MaxCount != max)
+                {
+                    row.MaxCount = max;
+                    changed = true;
+                }
+            }
+            else if (row is not null)
+            {
+                _db.WipLimits.Remove(row);
+                changed = true;
+            }
+        }
+
+        if (changed)
+            await _db.SaveChangesAsync(ct);
+
+        return await ToDtoAsync(team, ct);
+    }
+
     private async Task<TeamDto> ToDtoAsync(Team team, CancellationToken ct)
     {
         var ticketCount = await _db.Tickets.CountAsync(t => t.TeamId == team.Id, ct);
         var epicCount = await _db.Epics.CountAsync(e => e.TeamId == team.Id, ct);
-        return new TeamDto(team.Id, team.Name, ticketCount, epicCount, team.CreatedAt, team.ModifiedAt);
+        var limits = await _db.WipLimits.AsNoTracking()
+            .Where(w => w.TeamId == team.Id)
+            .Select(w => new { w.State, w.MaxCount })
+            .ToListAsync(ct);
+        return new TeamDto(team.Id, team.Name, ticketCount, epicCount, team.CreatedAt, team.ModifiedAt,
+            Services.WipLimits.ToMap(limits.Select(w => (w.State, w.MaxCount))));
     }
 }

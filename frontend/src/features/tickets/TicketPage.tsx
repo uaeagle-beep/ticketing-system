@@ -22,7 +22,7 @@ import type {
 } from '@/api/types';
 import { stateOptions, typeOptions } from '@/lib/labels';
 import { formatUtc } from '@/lib/time';
-import { errorMessage } from '@/lib/errors';
+import { errorMessage, isApiErrorCode } from '@/lib/errors';
 import { useTeams } from '@/features/teams/useTeams';
 import { useEpics } from '@/features/epics/useEpics';
 import { LoadingState, ErrorState } from '@/components/States';
@@ -69,6 +69,12 @@ export function TicketPage() {
   const [initialized, setInitialized] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Set when a create/edit is rejected because the target State is at its WIP limit (UX §4.3).
+  // Shown inline (banner + State field-error); cleared when the user changes the State value.
+  const [wipBlocked, setWipBlocked] = useState(false);
+
+  const WIP_BLOCK_MESSAGE =
+    'This status already has the maximum number of tickets — finish existing ones first.';
 
   // Initialize the form once: from the loaded ticket (edit) or from defaults
   // with an optional prefilled team (create).
@@ -114,8 +120,27 @@ export function TicketPage() {
 
   const handleTeamChange = (teamId: string) => {
     // Changing team clears the selected epic (FR-E4-5); the epic dropdown then
-    // reloads for the new team.
+    // reloads for the new team. A team change also changes which states are full,
+    // so clear any stale WIP block (UX §4.3).
     setForm((f) => ({ ...f, teamId, epicId: '' }));
+    setWipBlocked(false);
+  };
+
+  const handleStateChange = (state: TicketState) => {
+    updateField('state', state);
+    // The block is anchored to the previously-chosen state; clear it on change.
+    setWipBlocked(false);
+  };
+
+  // On a WIP rejection: keep all entered values (no navigation), show the inline message,
+  // and move focus to the State select (UX §4.3). Other errors fall back to a toast.
+  const handleSaveError = (err: unknown) => {
+    if (isApiErrorCode(err, 'wip_limit_reached')) {
+      setWipBlocked(true);
+      document.getElementById('ticket-state')?.focus();
+      return;
+    }
+    toast.showError(errorMessage(err));
   };
 
   const createMutation = useMutation({
@@ -126,7 +151,7 @@ export function TicketPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.teams });
       navigate(`/tickets/${created.id}`, { replace: true });
     },
-    onError: (err) => toast.showError(errorMessage(err)),
+    onError: handleSaveError,
   });
 
   const updateMutation = useMutation({
@@ -136,7 +161,7 @@ export function TicketPage() {
       queryClient.setQueryData(queryKeys.ticket(updated.id), updated);
       queryClient.invalidateQueries({ queryKey: ['board', updated.teamId] });
     },
-    onError: (err) => toast.showError(errorMessage(err)),
+    onError: handleSaveError,
   });
 
   const deleteMutation = useMutation({
@@ -238,6 +263,11 @@ export function TicketPage() {
         ) : null}
 
         <form className="panel" onSubmit={handleSubmit} noValidate>
+          {wipBlocked ? (
+            <div className="banner banner-error" role="alert">
+              {WIP_BLOCK_MESSAGE}
+            </div>
+          ) : null}
           <div className="form-grid">
             <div className="field">
               <label htmlFor="ticket-team">Team</label>
@@ -301,8 +331,10 @@ export function TicketPage() {
                 id="ticket-state"
                 className="select"
                 value={form.state}
-                onChange={(e) => updateField('state', e.target.value as TicketState)}
+                onChange={(e) => handleStateChange(e.target.value as TicketState)}
                 disabled={saving}
+                aria-invalid={wipBlocked ? true : undefined}
+                aria-describedby={wipBlocked ? 'ticket-state-error' : undefined}
               >
                 {stateOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -310,6 +342,11 @@ export function TicketPage() {
                   </option>
                 ))}
               </select>
+              {wipBlocked ? (
+                <span id="ticket-state-error" className="field-error">
+                  {WIP_BLOCK_MESSAGE}
+                </span>
+              ) : null}
             </div>
 
             <div className="field full">

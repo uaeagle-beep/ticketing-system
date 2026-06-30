@@ -17,3 +17,6 @@ pnpm-debug.log*
 /playwright-report/
 /playwright/.cache/
 /blob-report/
+
+# TypeScript incremental build cache
+*.tsbuildinfo

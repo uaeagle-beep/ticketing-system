@@ -222,11 +222,30 @@ h4 {
   text-transform: uppercase;
 }
 .badge-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   background: #dfe1e6;
   color: var(--text-muted);
   border-radius: 10px;
   font-weight: 600;
   padding: 1px 8px;
+}
+/* WIP badge full/over treatments — color PLUS icon PLUS /max text (UX §3.2). The 1px
+   border gives >= 3:1 non-text contrast against the grey column (WCAG 1.4.11). */
+.badge-count.is-full {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border: 1px solid var(--warning-text);
+}
+.badge-count.is-over {
+  background: var(--error-bg);
+  color: var(--error-text);
+  border: 1px solid var(--error-text);
+}
+.badge-count-icon {
+  font-size: 11px;
+  line-height: 1;
 }
 .type-bug {
   background: #ffebe6;
@@ -438,6 +457,13 @@ h4 {
   outline: 2px dashed var(--primary);
   outline-offset: -2px;
   background: #dbe4f3;
+}
+/* Pre-emptive cue that a column is at/over its WIP cap (UX §3.2, recommended). The
+   authoritative signal is the badge; this is a subtle header tint, color is not the
+   sole indicator (the badge icon + /max text + aria-label carry the meaning). */
+.board-column.is-full .board-column-header {
+  background: var(--warning-bg);
+  color: var(--warning-text);
 }
 .board-column-header {
   display: flex;
@@ -808,6 +834,64 @@ h4 {
 }
 .nowrap {
   white-space: nowrap;
+}
+
+/* ---------- WIP limits panel (UX §2.4) ---------- */
+.wip-panel-row > td {
+  padding: 0 0 12px;
+  background: transparent;
+}
+.wip-panel {
+  padding: 16px;
+}
+.wip-panel-intro {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.wip-field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wip-field-row {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 16px;
+}
+.wip-field-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.wip-field-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wip-field-control .input {
+  width: 120px;
+}
+.wip-field-unit {
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+/* Error / hint sit under the control column, aligned with the input. */
+.wip-field-row .field-error,
+.wip-field-row .field-hint {
+  grid-column: 2;
+}
+
+@media (max-width: 900px) {
+  .wip-field-row {
+    grid-template-columns: 1fr;
+  }
+  .wip-field-row .field-error,
+  .wip-field-row .field-hint {
+    grid-column: 1;
+  }
 }
 
 @media (max-width: 900px) {

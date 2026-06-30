@@ -24,6 +24,7 @@ import type {
   TicketStatePatchResponse,
   UpdateEpicRequest,
   UpdateTicketRequest,
+  UpdateWipLimitsRequest,
   VerifyEmailRequest,
 } from './types';
 
@@ -60,6 +61,10 @@ export const teamsApi = {
 
   // PUT /api/teams/{id} -> 200 Team
   rename: (id: string, body: RenameTeamRequest) => http.put<Team>(`/teams/${id}`, body),
+
+  // PUT /api/teams/{id}/wip-limits -> 200 Team (with updated wipLimits)
+  setWipLimits: (id: string, body: UpdateWipLimitsRequest) =>
+    http.put<Team>(`/teams/${id}/wip-limits`, body),
 
   // DELETE /api/teams/{id} -> 204
   remove: (id: string) => http.delete<void>(`/teams/${id}`),
