@@ -26,7 +26,7 @@ public sealed class AdminUsersController : ControllerBase
     public async Task<ActionResult<CreateUserResponse>> Create([FromBody] CreateUserRequest request, CancellationToken ct)
     {
         var result = await _users.CreateAsync(
-            request ?? new CreateUserRequest(null, null, false, null), ct);
+            request ?? new CreateUserRequest(null, null, null, false, null), ct);
         // The body may carry a once-shown generated password — forbid caching anywhere (SEC-4).
         SetNoStore();
         return StatusCode(StatusCodes.Status201Created, result);
@@ -35,6 +35,10 @@ public sealed class AdminUsersController : ControllerBase
     [HttpPut("{id:guid}/role")]
     public async Task<ActionResult<AdminUserDto>> SetRole(Guid id, [FromBody] SetRoleRequest request, CancellationToken ct)
         => Ok(await _users.SetRoleAsync(id, request ?? new SetRoleRequest(false), ct));
+
+    [HttpPut("{id:guid}/name")]
+    public async Task<ActionResult<AdminUserDto>> SetName(Guid id, [FromBody] SetNameRequest request, CancellationToken ct)
+        => Ok(await _users.SetNameAsync(id, request ?? new SetNameRequest(null), ct));
 
     [HttpPut("{id:guid}/teams")]
     public async Task<ActionResult<AdminUserDto>> SetTeams(Guid id, [FromBody] SetTeamsRequest request, CancellationToken ct)

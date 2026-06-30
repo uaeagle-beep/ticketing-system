@@ -130,7 +130,8 @@ public sealed class TicketService
             {
                 Ticket = t,
                 EpicTitle = t.Epic != null ? t.Epic.Title : null,
-                CreatedByEmail = t.CreatedByUser != null ? t.CreatedByUser.Email : string.Empty
+                CreatedByEmail = t.CreatedByUser != null ? t.CreatedByUser.Email : string.Empty,
+                CreatedByName = t.CreatedByUser != null ? t.CreatedByUser.Name : null
             })
             .FirstOrDefaultAsync(ct)
             ?? throw ServiceException.NotFound("Ticket not found.");
@@ -138,7 +139,7 @@ public sealed class TicketService
         // Resolve-then-check on the RESOURCE's team (not the request) — IDOR guard, §3.3 ordering.
         _currentUser.RequireTeamAccess(dto.Ticket.TeamId);
 
-        return ToDetail(dto.Ticket, dto.EpicTitle, dto.CreatedByEmail);
+        return ToDetail(dto.Ticket, dto.EpicTitle, dto.CreatedByEmail, dto.CreatedByName);
     }
 
     // ----- Create (API_CONTRACT §6.3) -----
@@ -386,7 +387,7 @@ public sealed class TicketService
     private static string EscapeLike(string input)
         => input.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
-    private static TicketDetailDto ToDetail(Ticket t, string? epicTitle, string createdByEmail)
+    private static TicketDetailDto ToDetail(Ticket t, string? epicTitle, string createdByEmail, string? createdByName)
         => new(
             t.Id,
             t.TeamId,
@@ -399,5 +400,6 @@ public sealed class TicketService
             t.CreatedAt,
             t.ModifiedAt,
             t.CreatedBy,
-            createdByEmail);
+            createdByEmail,
+            createdByName);
 }

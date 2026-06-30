@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { commentsApi } from '@/api/endpoints';
 import { queryKeys } from '@/lib/queryKeys';
 import { formatUtc } from '@/lib/time';
+import { displayName } from '@/lib/displayName';
 import { errorMessage } from '@/lib/errors';
 import { CountBadge } from '@/components/Badges';
 import { LoadingState } from '@/components/States';
@@ -58,7 +59,7 @@ export function CommentsPanel({ ticketId }: { ticketId: string }) {
           {comments.map((c) => (
             <div className="comment" key={c.id}>
               <div className="comment-head">
-                <span className="comment-author">{c.authorEmail}</span>
+                <span className="comment-author">{displayName(c.authorName, c.authorEmail)}</span>
                 <span className="comment-time">{formatUtc(c.createdAt)}</span>
               </div>
               <div className="comment-body">{c.body}</div>

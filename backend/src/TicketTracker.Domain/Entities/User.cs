@@ -12,6 +12,13 @@ public class User
     /// <summary>Original-case display value as entered (trimmed).</summary>
     public string Email { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Optional display name. Trimmed on save; blank/whitespace is stored as null. When null,
+    /// the UI falls back to <see cref="Email"/> as the display value. Email remains the key for
+    /// login and account management; the name is purely cosmetic.
+    /// </summary>
+    public string? Name { get; set; }
+
     /// <summary>trim(lower(email)) — the case-insensitive uniqueness key.</summary>
     public string EmailNormalized { get; set; } = string.Empty;
 

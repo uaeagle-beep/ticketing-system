@@ -54,6 +54,8 @@ export interface TeamRef {
 export interface AuthUser {
   id: string;
   email: string;
+  // Optional display name (Feature 1). null/absent => the UI shows the email.
+  name: string | null;
   emailVerified: boolean;
   // User Management (ADR-0007): admin flag + memberships drive nav/team-scoping.
   isAdmin: boolean;
@@ -112,6 +114,8 @@ export interface TicketDetail {
   modifiedAt: string;
   createdBy: string;
   createdByEmail: string;
+  // Creator's optional display name (Feature 1). null => the UI shows createdByEmail.
+  createdByName: string | null;
 }
 
 // Card payload as returned inside the board columns (subset of the detail).
@@ -157,6 +161,8 @@ export interface Comment {
   ticketId: string;
   authorId: string;
   authorEmail: string;
+  // Author's optional display name (Feature 1). null => the UI shows authorEmail.
+  authorName: string | null;
   body: string;
   createdAt: string;
 }
@@ -245,6 +251,8 @@ export type AdminUserStatus = 'active' | 'unverified' | 'blocked';
 export interface AdminUser {
   id: string;
   email: string;
+  // Optional display name (Feature 1). null => the UI shows the email.
+  name: string | null;
   isAdmin: boolean;
   isBlocked: boolean;
   emailVerified: boolean;
@@ -257,8 +265,15 @@ export interface CreateUserRequest {
   email: string;
   // null/blank => the server generates a strong password and returns it once.
   password?: string | null;
+  // Optional display name. null/blank => stored as null (UI shows the email).
+  name?: string | null;
   isAdmin: boolean;
   teamIds?: string[] | null;
+}
+
+export interface SetNameRequest {
+  // null/blank => clears the display name (UI shows the email).
+  name: string | null;
 }
 
 export interface CreateUserResponse {

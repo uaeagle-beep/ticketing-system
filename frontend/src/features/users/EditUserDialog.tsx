@@ -21,6 +21,7 @@ export function EditUserDialog({ user, teams, onClose }: EditUserDialogProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
 
+  const [name, setName] = useState(user.name ?? '');
   const [isAdmin, setIsAdmin] = useState(user.isAdmin);
   const [selectedTeams, setSelectedTeams] = useState<Set<string>>(
     () => new Set(user.teams.map((t) => t.id)),
@@ -30,7 +31,12 @@ export function EditUserDialog({ user, teams, onClose }: EditUserDialogProps) {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      // Save role first (it can fail with last_admin_required); only then teams.
+      // Save the name (set/clear) when changed. Blank => null (UI shows the email).
+      const nextName = name.trim() || null;
+      if (nextName !== (user.name ?? null)) {
+        await adminUsersApi.setName(user.id, { name: nextName });
+      }
+      // Save role next (it can fail with last_admin_required); only then teams.
       if (isAdmin !== user.isAdmin) {
         await adminUsersApi.setRole(user.id, { isAdmin });
       }
@@ -75,6 +81,21 @@ export function EditUserDialog({ user, teams, onClose }: EditUserDialogProps) {
           <p>
             <strong>{user.email}</strong>
           </p>
+
+          <div className="field">
+            <label htmlFor="edit-user-name">Name</label>
+            <input
+              id="edit-user-name"
+              className="input"
+              type="text"
+              autoComplete="off"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={busy}
+              maxLength={100}
+            />
+            <p className="field-hint">Optional. Leave blank to show the email.</p>
+          </div>
 
           <div className="field">
             <label className="checkbox-row">

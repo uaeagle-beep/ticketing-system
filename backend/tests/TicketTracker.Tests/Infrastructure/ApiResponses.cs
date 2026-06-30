@@ -24,7 +24,8 @@ public sealed record UserDto(
     [property: JsonPropertyName("emailVerified")] bool EmailVerified,
     [property: JsonPropertyName("isAdmin")] bool IsAdmin = false,
     [property: JsonPropertyName("isBlocked")] bool IsBlocked = false,
-    [property: JsonPropertyName("teams")] List<TeamRefDto>? Teams = null);
+    [property: JsonPropertyName("teams")] List<TeamRefDto>? Teams = null,
+    [property: JsonPropertyName("name")] string? Name = null);
 
 public sealed record AdminUserDto(
     [property: JsonPropertyName("id")] Guid Id,
@@ -34,7 +35,8 @@ public sealed record AdminUserDto(
     [property: JsonPropertyName("emailVerified")] bool EmailVerified,
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
-    [property: JsonPropertyName("teams")] List<TeamRefDto> Teams);
+    [property: JsonPropertyName("teams")] List<TeamRefDto> Teams,
+    [property: JsonPropertyName("name")] string? Name = null);
 
 public sealed record CreateUserResponseDto(
     [property: JsonPropertyName("user")] AdminUserDto User,
@@ -78,7 +80,8 @@ public sealed record TicketDto(
     [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
     [property: JsonPropertyName("modifiedAt")] DateTime ModifiedAt,
     [property: JsonPropertyName("createdBy")] Guid CreatedBy,
-    [property: JsonPropertyName("createdByEmail")] string CreatedByEmail);
+    [property: JsonPropertyName("createdByEmail")] string CreatedByEmail,
+    [property: JsonPropertyName("createdByName")] string? CreatedByName = null);
 
 public sealed record TicketCardDto(
     [property: JsonPropertyName("id")] Guid Id,
@@ -112,4 +115,5 @@ public sealed record CommentDto(
     [property: JsonPropertyName("authorId")] Guid AuthorId,
     [property: JsonPropertyName("authorEmail")] string AuthorEmail,
     [property: JsonPropertyName("body")] string Body,
-    [property: JsonPropertyName("createdAt")] DateTime CreatedAt);
+    [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
+    [property: JsonPropertyName("authorName")] string? AuthorName = null);

@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
+import { displayName } from '@/lib/displayName';
 
 export function AppLayout() {
   const { user, signOut } = useAuth();
@@ -28,7 +29,9 @@ export function AppLayout() {
     navigate('/login', { replace: true });
   };
 
-  const initial = user?.email?.charAt(0).toUpperCase() ?? '?';
+  // Show the display name (name when set, else email) in the header; email stays the account key.
+  const shown = user ? displayName(user.name, user.email) : '';
+  const initial = shown.charAt(0).toUpperCase() || '?';
 
   return (
     <div className="app-shell">
@@ -65,10 +68,11 @@ export function AppLayout() {
             <span className="user-avatar" aria-hidden>
               {initial}
             </span>
-            <span className="nowrap muted">{user?.email}</span>
+            <span className="nowrap muted">{shown}</span>
           </button>
           {menuOpen ? (
             <div className="user-menu-popover" role="menu">
+              {user?.name ? <div className="user-menu-name">{shown}</div> : null}
               <div className="user-menu-email">{user?.email}</div>
               <button
                 type="button"

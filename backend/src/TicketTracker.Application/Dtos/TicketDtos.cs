@@ -34,7 +34,8 @@ public sealed record TicketDetailDto(
     DateTime CreatedAt,
     DateTime ModifiedAt,
     Guid CreatedBy,
-    string CreatedByEmail);
+    string CreatedByEmail,
+    string? CreatedByName);
 
 /// <summary>Compact card payload used inside the board columns (API_CONTRACT §6.1).</summary>
 public sealed record TicketCardDto(

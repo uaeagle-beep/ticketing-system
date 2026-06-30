@@ -32,6 +32,7 @@ export const API = '/api';
 export const sampleUser: AuthUser = {
   id: '8e29c1b4-0000-4000-8000-000000000001',
   email: 'alex@dataart.com',
+  name: null,
   emailVerified: true,
   isAdmin: true,
   isBlocked: false,
@@ -83,6 +84,7 @@ export const sampleTicketDetail: TicketDetail = {
   modifiedAt: '2026-06-23T12:40:00Z',
   createdBy: sampleUser.id,
   createdByEmail: sampleUser.email,
+  createdByName: null,
 };
 
 export const sampleComment: Comment = {
@@ -90,6 +92,7 @@ export const sampleComment: Comment = {
   ticketId: sampleTicketDetail.id,
   authorId: sampleUser.id,
   authorEmail: sampleUser.email,
+  authorName: null,
   body: 'Looks fixed.',
   createdAt: '2026-06-23T13:00:00Z',
 };
@@ -99,6 +102,7 @@ export const sampleComment: Comment = {
 export const sampleAdminUser: AdminUser = {
   id: sampleUser.id,
   email: sampleUser.email,
+  name: null,
   isAdmin: true,
   isBlocked: false,
   emailVerified: true,
@@ -110,6 +114,7 @@ export const sampleAdminUser: AdminUser = {
 export const sampleMemberUser: AdminUser = {
   id: '8e29c1b4-0000-4000-8000-000000000002',
   email: 'dev@dataart.com',
+  name: null,
   isAdmin: false,
   isBlocked: false,
   emailVerified: true,

@@ -52,7 +52,7 @@ public sealed class UserAdminService
             .OrderBy(u => u.CreatedAt).ThenBy(u => u.Id)
             .Select(u => new
             {
-                u.Id, u.Email, u.IsAdmin, u.IsBlocked, u.EmailVerified, u.CreatedAt,
+                u.Id, u.Email, u.Name, u.IsAdmin, u.IsBlocked, u.EmailVerified, u.CreatedAt,
                 Teams = u.Memberships
                     .OrderBy(m => m.Team!.NameNormalized)
                     .Select(m => new TeamRefDto(m.TeamId, m.Team!.Name))
@@ -62,7 +62,7 @@ public sealed class UserAdminService
 
         return users
             .Select(u => new AdminUserDto(
-                u.Id, u.Email, u.IsAdmin, u.IsBlocked, u.EmailVerified,
+                u.Id, u.Email, u.Name, u.IsAdmin, u.IsBlocked, u.EmailVerified,
                 DeriveStatus(u.IsBlocked, u.EmailVerified), u.CreatedAt, u.Teams))
             .ToList();
     }
@@ -92,6 +92,9 @@ public sealed class UserAdminService
                 throw ServiceException.Validation("password", $"Password must be at most {FieldLimits.PasswordMax} characters.");
         }
 
+        // Optional display name: trim, blank ⇒ null; enforce the length bound (§ Feature 1).
+        var name = NormalizeName(request.Name);
+
         var normalized = Normalization.NormalizeKey(email);
         var exists = await _db.Users.AnyAsync(u => u.EmailNormalized == normalized, ct);
         if (exists)
@@ -105,6 +108,7 @@ public sealed class UserAdminService
         {
             Id = Guid.NewGuid(),
             Email = email,
+            Name = name,
             EmailNormalized = normalized,
             PasswordHash = _hasher.Hash(password),
             EmailVerified = true,   // admin-created accounts are pre-verified, no token, no email (UM-3)
@@ -159,6 +163,32 @@ public sealed class UserAdminService
 
         await LogAdminActionAsync(request.IsAdmin ? "promote_admin" : "demote_admin",
             user.Id, user.Email, ct: ct);
+
+        return await ToDtoAsync(user.Id, ct);
+    }
+
+    // ----- Set display name (Feature 1) -----
+
+    /// <summary>
+    /// Set or clear a user's optional display name. Trim; blank/whitespace ⇒ null (UI shows the email);
+    /// overflow ⇒ 400 validation_error keyed "name". Idempotent: an unchanged value is a no-op success.
+    /// </summary>
+    public async Task<AdminUserDto> SetNameAsync(Guid id, SetNameRequest request, CancellationToken ct)
+    {
+        _currentUser.RequireAdmin();
+
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, ct)
+            ?? throw ServiceException.NotFound("User not found.");
+
+        var name = NormalizeName(request.Name);
+
+        if (!string.Equals(user.Name, name, StringComparison.Ordinal)) // idempotent no-op when unchanged
+        {
+            user.Name = name;
+            await _db.SaveChangesAsync(ct);
+        }
+
+        await LogAdminActionAsync("set_name", user.Id, user.Email, ct: ct);
 
         return await ToDtoAsync(user.Id, ct);
     }
@@ -298,6 +328,18 @@ public sealed class UserAdminService
         => isBlocked ? "blocked" : !emailVerified ? "unverified" : "active";
 
     /// <summary>
+    /// Normalize an optional display name: trim; blank/whitespace ⇒ null; overflow ⇒ 400
+    /// validation_error keyed "name" (Feature 1). A non-null result is the trimmed value.
+    /// </summary>
+    private static string? NormalizeName(string? name)
+    {
+        var trimmed = Normalization.NormalizeOptionalText(name);
+        if (trimmed is not null && trimmed.Length > FieldLimits.NameMax)
+            throw ServiceException.Validation("name", $"Name must be at most {FieldLimits.NameMax} characters.");
+        return trimmed;
+    }
+
+    /// <summary>
     /// Validates that every requested team id exists; de-duplicates. Null/empty ⇒ no teams.
     /// An unknown id ⇒ 400 validation_error keyed "teamIds" (§4.3/§4.5).
     /// </summary>
@@ -419,7 +461,7 @@ public sealed class UserAdminService
             .Where(x => x.Id == userId)
             .Select(x => new
             {
-                x.Id, x.Email, x.IsAdmin, x.IsBlocked, x.EmailVerified, x.CreatedAt,
+                x.Id, x.Email, x.Name, x.IsAdmin, x.IsBlocked, x.EmailVerified, x.CreatedAt,
                 Teams = x.Memberships
                     .OrderBy(m => m.Team!.NameNormalized)
                     .Select(m => new TeamRefDto(m.TeamId, m.Team!.Name))
@@ -429,7 +471,7 @@ public sealed class UserAdminService
             ?? throw ServiceException.NotFound("User not found.");
 
         return new AdminUserDto(
-            u.Id, u.Email, u.IsAdmin, u.IsBlocked, u.EmailVerified,
+            u.Id, u.Email, u.Name, u.IsAdmin, u.IsBlocked, u.EmailVerified,
             DeriveStatus(u.IsBlocked, u.EmailVerified), u.CreatedAt, u.Teams);
     }
 }

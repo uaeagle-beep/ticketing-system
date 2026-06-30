@@ -22,6 +22,7 @@ import type {
   RenameTeamRequest,
   ResendVerificationRequest,
   ResetPasswordResponse,
+  SetNameRequest,
   SetRoleRequest,
   SetTeamsRequest,
   SignupRequest,
@@ -148,6 +149,10 @@ export const adminUsersApi = {
   // PUT /api/admin/users/{id}/role -> 200 AdminUser
   setRole: (id: string, body: SetRoleRequest) =>
     http.put<AdminUser>(`/admin/users/${id}/role`, body),
+
+  // PUT /api/admin/users/{id}/name -> 200 AdminUser
+  setName: (id: string, body: SetNameRequest) =>
+    http.put<AdminUser>(`/admin/users/${id}/name`, body),
 
   // PUT /api/admin/users/{id}/teams -> 200 AdminUser
   setTeams: (id: string, body: SetTeamsRequest) =>

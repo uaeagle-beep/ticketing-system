@@ -352,6 +352,12 @@ h4 {
   padding: 8px;
   z-index: 30;
 }
+.user-menu-name {
+  padding: 6px 8px 0;
+  font-weight: 600;
+  font-size: 13px;
+  word-break: break-word;
+}
 .user-menu-email {
   padding: 6px 8px;
   color: var(--text-muted);
@@ -359,6 +365,21 @@ h4 {
   word-break: break-all;
   border-bottom: 1px solid var(--border);
   margin-bottom: 6px;
+}
+
+/* User list cell: primary display name + secondary email (when a name is set). */
+.user-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.user-cell-name {
+  font-weight: 600;
+  word-break: break-word;
+}
+.user-cell-email {
+  font-size: 12px;
+  word-break: break-all;
 }
 
 /* ---------- Auth screens ---------- */

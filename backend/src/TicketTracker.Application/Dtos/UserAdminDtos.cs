@@ -5,10 +5,12 @@ namespace TicketTracker.Application.Dtos;
 /// <summary>
 /// A user as shown in the admin "Users" zone. <c>Status</c> is DERIVED, not stored:
 /// "blocked" if blocked; else "unverified" if not email-verified; else "active" (§2.1).
+/// <c>Name</c> is the optional display name (null ⇒ the UI shows <c>Email</c>).
 /// </summary>
 public sealed record AdminUserDto(
     Guid Id,
     string Email,
+    string? Name,
     bool IsAdmin,
     bool IsBlocked,
     bool EmailVerified,
@@ -16,10 +18,14 @@ public sealed record AdminUserDto(
     DateTime CreatedAt,
     IReadOnlyList<TeamRefDto> Teams);
 
-/// <summary>Create-user request. A null/blank <c>Password</c> ⇒ the server generates a strong one.</summary>
+/// <summary>
+/// Create-user request. A null/blank <c>Password</c> ⇒ the server generates a strong one.
+/// <c>Name</c> is optional (null/blank ⇒ stored as null, UI shows the email).
+/// </summary>
 public sealed record CreateUserRequest(
     string? Email,
     string? Password,
+    string? Name,
     bool IsAdmin,
     IReadOnlyList<Guid>? TeamIds);
 
@@ -30,6 +36,12 @@ public sealed record CreateUserRequest(
 public sealed record CreateUserResponse(AdminUserDto User, string? GeneratedPassword);
 
 public sealed record SetRoleRequest(bool IsAdmin);
+
+/// <summary>
+/// Set/clear a user's display name. <c>Name</c> null/blank ⇒ cleared to null (UI shows the email);
+/// otherwise trimmed and stored. Overflow (&gt; <see cref="Validation.FieldLimits.NameMax"/>) ⇒ 400.
+/// </summary>
+public sealed record SetNameRequest(string? Name);
 
 public sealed record SetTeamsRequest(IReadOnlyList<Guid>? TeamIds);
 

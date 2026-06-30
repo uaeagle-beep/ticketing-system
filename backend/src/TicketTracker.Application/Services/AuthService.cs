@@ -321,7 +321,7 @@ public sealed class AuthService
             .OrderBy(m => m.Team!.NameNormalized)
             .Select(m => new TeamRefDto(m.TeamId, m.Team!.Name))
             .ToListAsync(ct);
-        return new UserDto(user.Id, user.Email, user.EmailVerified, user.IsAdmin, user.IsBlocked, teams);
+        return new UserDto(user.Id, user.Email, user.Name, user.EmailVerified, user.IsAdmin, user.IsBlocked, teams);
     }
 
     /// <summary>

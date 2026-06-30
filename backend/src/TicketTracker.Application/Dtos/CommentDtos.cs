@@ -9,5 +9,6 @@ public sealed record CommentDto(
     Guid TicketId,
     Guid AuthorId,
     string AuthorEmail,
+    string? AuthorName,
     string Body,
     DateTime CreatedAt);

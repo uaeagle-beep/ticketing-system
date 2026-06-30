@@ -20,10 +20,11 @@ public sealed record TeamRefDto(Guid Id, string Name);
 /// <summary>
 /// The authenticated user as returned by /api/auth/me and LoginResponse.user. Carries the
 /// authorization context (<c>IsAdmin</c>, <c>IsBlocked</c>, <c>Teams</c>) that drives the SPA's
-/// nav/team-selector and the "load last/first team" client logic (ADR-0007, §4.9).
+/// nav/team-selector and the "load last/first team" client logic (ADR-0007, §4.9). <c>Name</c> is
+/// the optional display name (null ⇒ the SPA shows <c>Email</c>); email stays the login/account key.
 /// </summary>
 public sealed record UserDto(
-    Guid Id, string Email, bool EmailVerified, bool IsAdmin, bool IsBlocked,
+    Guid Id, string Email, string? Name, bool EmailVerified, bool IsAdmin, bool IsBlocked,
     IReadOnlyList<TeamRefDto> Teams);
 
 public sealed record LoginResponse(string Token, UserDto User, DateTime ExpiresAt);

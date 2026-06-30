@@ -95,12 +95,13 @@ Creates an unverified account and sends a verification email. No session is issu
 ```json
 {
   "token": "9f2b...base64url-opaque-256bit...",
-  "user": { "id": "8e29c1b4-...", "email": "alex@dataart.com", "emailVerified": true,
+  "user": { "id": "8e29c1b4-...", "email": "alex@dataart.com", "name": "Alex Doe", "emailVerified": true,
             "isAdmin": false, "isBlocked": false, "teams": [ { "id": "f1...", "name": "Platform" } ] },
   "expiresAt": "2026-07-03T11:26:00Z"
 }
 ```
 - `user` carries the authorization context (`isAdmin`, `isBlocked`, `teams[]`) so the SPA can bootstrap nav + team-selector from a single response (mirror of `/api/auth/me`).
+- `name` is the optional **display name** (`null` when unset). Display rule everywhere a person is shown: `displayName = name?.trim() || email`. Email stays the login/account key; `name` is purely cosmetic.
 
 **Errors:**
 - `401 invalid_credentials` — wrong password OR unknown email (identical response, A3).
@@ -159,12 +160,13 @@ SPA bootstrap: returns the current user for the presented token.
 **200 OK**
 ```json
 {
-  "id": "8e29c1b4-...", "email": "alex@dataart.com", "emailVerified": true,
+  "id": "8e29c1b4-...", "email": "alex@dataart.com", "name": "Alex Doe", "emailVerified": true,
   "isAdmin": false, "isBlocked": false,
   "teams": [ { "id": "f1...", "name": "Platform" } ]
 }
 ```
 - `isAdmin` drives the admin-only "Users" nav item; `teams[]` drives the board team-selector and the "load last/first team" client logic (ADR-0007). An admin's `teams[]` may be empty (admins ignore scoping).
+- `name` is the optional display name (`null` when unset); the SPA shows it in the header (falling back to the email). Email remains the account key.
 
 **Errors:** `401 unauthorized` (incl. a token whose user became blocked).
 
@@ -323,10 +325,11 @@ Ticket object (detail):
   "type": "bug", "state": "in_progress",
   "title": "Login fails", "body": "Steps to reproduce...",
   "createdAt": "2026-06-22T09:15:00Z", "modifiedAt": "2026-06-23T12:40:00Z",
-  "createdBy": "8e29c1b4-...", "createdByEmail": "alex@dataart.com"
+  "createdBy": "8e29c1b4-...", "createdByEmail": "alex@dataart.com", "createdByName": "Alex Doe"
 }
 ```
 - `epicId`/`epicTitle` are `null` when no epic. `type` ∈ {`bug`,`feature`,`fix`}; `state` ∈ {`new`,`ready_for_implementation`,`in_progress`,`ready_for_acceptance`,`done`}.
+- `createdByName` is the creator's optional display name (`null` when unset); the SPA shows `displayName(createdByName, createdByEmail)` in the "Created by" line.
 
 ### 6.1 `GET /api/tickets?teamId={teamId}&type=&epicId=&search=` — authenticated
 Board data for one team. `teamId` **required**. Optional filters combine with **AND** (A24):
@@ -419,8 +422,9 @@ Deletes the ticket and **cascades to its comments** (V22, the only mandated casc
 
 Comment object:
 ```json
-{ "id": "cm01...", "ticketId": "tk1042...", "authorId": "8e29c1b4-...", "authorEmail": "alex@dataart.com", "body": "Looks fixed.", "createdAt": "2026-06-23T13:00:00Z" }
+{ "id": "cm01...", "ticketId": "tk1042...", "authorId": "8e29c1b4-...", "authorEmail": "alex@dataart.com", "authorName": "Alex Doe", "body": "Looks fixed.", "createdAt": "2026-06-23T13:00:00Z" }
 ```
+- `authorName` is the author's optional display name (`null` when unset); the SPA shows `displayName(authorName, authorEmail)`.
 
 ### 7.1 `GET /api/tickets/{id}/comments` — authenticated
 Lists a ticket's comments **oldest-first** (V23, FR-E5-4).
@@ -450,24 +454,28 @@ All endpoints under `/api/admin/*` are **admin only**: a valid, verified, non-bl
 **User object (admin list/detail):**
 ```json
 {
-  "id": "8e29c1b4-...", "email": "alex@dataart.com",
+  "id": "8e29c1b4-...", "email": "alex@dataart.com", "name": "Alex Doe",
   "isAdmin": true, "isBlocked": false, "emailVerified": true,
   "status": "active", "createdAt": "2026-06-30T11:26:00Z",
   "teams": [ { "id": "f1...", "name": "Platform" } ]
 }
 ```
 - `status` is **derived**: `blocked` if `isBlocked`; else `unverified` if `!emailVerified`; else `active`.
+- `name` is the optional display name (`null` when unset). The Users list shows `displayName(name, email)` as the primary value with the email beneath; email stays the account key. Length ≤ 100.
 
 ### 8.1 `GET /api/admin/users` — admin
 Lists **all** users (no team filter — admins are global), ordered by `createdAt` asc. **200 OK** → array of user objects. **Errors:** `401`; `403 forbidden`.
 
+> **Filtering (SPA, client-side):** the Users screen filters the returned list **in the browser** (the list is admin-only and small). Filters combine with **AND**: free-text search over **name OR email** (case-insensitive substring), role (all/admin/member), team (all/specific, by membership), email verification (all/verified/unverified), and status (all/active/blocked), plus a Clear control and a match count. No server-side query params are added; this endpoint remains a plain full list (server-side `search`/`limit` may be added later without a contract break, [ПРИПУЩЕННЯ UM-8]).
+
 ### 8.2 `POST /api/admin/users` — admin
 **Request**
 ```json
-{ "email": "newdev@dataart.com", "password": null, "isAdmin": false, "teamIds": ["f1..."] }
+{ "email": "newdev@dataart.com", "password": null, "name": "New Dev", "isAdmin": false, "teamIds": ["f1..."] }
 ```
 - `email`: required, valid, normalized-unique → else **409 email_in_use**.
 - `password`: optional; null/blank ⇒ the server generates a strong password (≥16, mixed classes) and returns it once. If provided, must satisfy ≥8 / ≤1024.
+- `name`: optional display name; trimmed, blank/whitespace ⇒ stored as `null`. Overflow (> 100 chars) ⇒ **400 validation_error** keyed `name`.
 - `isAdmin`: optional (default false). `teamIds`: optional; each must reference an existing team (else **400 validation_error** keyed `teamIds`); de-duplicated.
 - The account is created `emailVerified=true`, `isBlocked=false`, with **no** verification token and **no** email sent.
 
@@ -479,6 +487,10 @@ Lists **all** users (no team filter — admins are global), ordered by `createdA
 
 ### 8.3 `PUT /api/admin/users/{id}/role` — admin
 **Request:** `{ "isAdmin": false }` → **200 OK** with the updated user object. Idempotent (same value = no-op success). Demoting the **last active admin** → **409 last_admin_required**. Promotion is always allowed. **Errors:** `404`; `409 last_admin_required`; `401`/`403`.
+
+### 8.3.1 `PUT /api/admin/users/{id}/name` — admin
+Set or clear a user's optional display name.
+**Request:** `{ "name": "Alex Doe" }` (or `{ "name": null }` / blank to clear) → **200 OK** with the updated user object. Trimmed; blank/whitespace ⇒ stored as `null`. Idempotent (unchanged value = no-op success). **Errors:** `404` (unknown user); `400 validation_error` keyed `name` (> 100 chars); `401`/`403`. There is no self-service profile edit — name is set by an admin only (a future enhancement may add self-edit).
 
 ### 8.4 `PUT /api/admin/users/{id}/teams` — admin
 **Request:** `{ "teamIds": ["f1...", "a2..."] }` — replaces the full membership set. Each id must exist (else **400 validation_error**); de-duplicated; empty/null ⇒ no teams. **200 OK** with the updated user object. Does not affect `isAdmin`. **Errors:** `400`; `404`; `401`/`403`.

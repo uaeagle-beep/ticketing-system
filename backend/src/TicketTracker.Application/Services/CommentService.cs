@@ -40,6 +40,7 @@ public sealed class CommentService
                 c.TicketId,
                 c.AuthorId,
                 c.Author != null ? c.Author.Email : string.Empty,
+                c.Author != null ? c.Author.Name : null,
                 c.Body,
                 c.CreatedAt))
             .ToListAsync(ct);
@@ -69,12 +70,14 @@ public sealed class CommentService
         _db.Comments.Add(comment);
         await _db.SaveChangesAsync(ct);   // does NOT touch ticket.modified_at (V21)
 
-        var authorEmail = await _db.Users.AsNoTracking()
+        var author = await _db.Users.AsNoTracking()
             .Where(u => u.Id == authorId)
-            .Select(u => u.Email)
-            .FirstOrDefaultAsync(ct) ?? string.Empty;
+            .Select(u => new { u.Email, u.Name })
+            .FirstOrDefaultAsync(ct);
+        var authorEmail = author?.Email ?? string.Empty;
+        var authorName = author?.Name;
 
-        return new CommentDto(comment.Id, comment.TicketId, comment.AuthorId, authorEmail, comment.Body, comment.CreatedAt);
+        return new CommentDto(comment.Id, comment.TicketId, comment.AuthorId, authorEmail, authorName, comment.Body, comment.CreatedAt);
     }
 
     /// <summary>

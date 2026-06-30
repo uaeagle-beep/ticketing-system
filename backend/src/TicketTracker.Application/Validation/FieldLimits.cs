@@ -8,6 +8,10 @@ namespace TicketTracker.Application.Validation;
 public static class FieldLimits
 {
     public const int EmailMax = 320;
+
+    /// <summary>Optional display name length bound. Overflow =&gt; 400 validation_error keyed "name".</summary>
+    public const int NameMax = 100;
+
     public const int PasswordMin = 8;
     public const int PasswordMax = 1024;
     public const int TeamNameMax = 200;

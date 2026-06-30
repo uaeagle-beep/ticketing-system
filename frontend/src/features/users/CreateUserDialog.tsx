@@ -23,6 +23,7 @@ export function CreateUserDialog({ teams, onClose }: CreateUserDialogProps) {
   const toast = useToast();
 
   const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
   const [autoGenerate, setAutoGenerate] = useState(true);
   const [password, setPassword] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
@@ -34,6 +35,8 @@ export function CreateUserDialog({ teams, onClose }: CreateUserDialogProps) {
     mutationFn: () =>
       adminUsersApi.create({
         email: email.trim(),
+        // Blank name => null so the UI shows the email (mirrors the backend).
+        name: name.trim() || null,
         password: autoGenerate ? null : password,
         isAdmin,
         teamIds: Array.from(selectedTeams),
@@ -125,6 +128,21 @@ export function CreateUserDialog({ teams, onClose }: CreateUserDialogProps) {
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={busy}
               />
+            </div>
+
+            <div className="field">
+              <label htmlFor="create-user-name">Name</label>
+              <input
+                id="create-user-name"
+                className="input"
+                type="text"
+                autoComplete="off"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                disabled={busy}
+                maxLength={100}
+              />
+              <p className="field-hint">Optional. Leave blank to show the email.</p>
             </div>
 
             <div className="field">

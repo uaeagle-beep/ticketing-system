@@ -2,13 +2,14 @@
 // reached only via the RequireAdmin route guard. Lists every user with role, teams, verification,
 // status and timestamps, and offers create / edit / reset-password / block-unblock actions.
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminUsersApi } from '@/api/endpoints';
 import type { AdminUser } from '@/api/types';
 import { useUsers, usersQueryKey } from './useUsers';
 import { useTeams } from '@/features/teams/useTeams';
 import { formatUtc } from '@/lib/time';
+import { displayName } from '@/lib/displayName';
 import { errorMessage } from '@/lib/errors';
 import { LoadingState, ErrorState, EmptyState } from '@/components/States';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -16,6 +17,8 @@ import { useToast } from '@/components/toast/ToastContext';
 import { CreateUserDialog } from './CreateUserDialog';
 import { EditUserDialog } from './EditUserDialog';
 import { ResetPasswordDialog } from './ResetPasswordDialog';
+import { UsersFilterBar, EMPTY_USERS_FILTERS, type UsersFilters } from './UsersFilterBar';
+import { filterUsers } from './usersFilter';
 
 function StatusBadge({ status }: { status: AdminUser['status'] }) {
   const cls =
@@ -36,6 +39,10 @@ export function UsersPage() {
   const [editTarget, setEditTarget] = useState<AdminUser | null>(null);
   const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
   const [blockTarget, setBlockTarget] = useState<AdminUser | null>(null);
+  const [filters, setFilters] = useState<UsersFilters>(EMPTY_USERS_FILTERS);
+
+  // Client-side AND filtering over the loaded list (Feature 2). Recomputed when users or filters change.
+  const filteredUsers = useMemo(() => filterUsers(users, filters), [users, filters]);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: usersQueryKey });
 
@@ -73,23 +80,43 @@ export function UsersPage() {
       ) : users.length === 0 ? (
         <EmptyState title="No users" message="Create the first user to get started." />
       ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Email</th>
-              <th>Role</th>
-              <th>Teams</th>
-              <th>Verified</th>
-              <th>Status</th>
-              <th>Created</th>
-              <th className="text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((user) => (
-              <tr key={user.id}>
-                <td>{user.email}</td>
-                <td>{user.isAdmin ? 'Admin' : 'Member'}</td>
+        <>
+          <UsersFilterBar
+            filters={filters}
+            teams={teams}
+            matchCount={filteredUsers.length}
+            onChange={setFilters}
+            onClear={() => setFilters(EMPTY_USERS_FILTERS)}
+          />
+
+          {filteredUsers.length === 0 ? (
+            <EmptyState
+              title="No matching users"
+              message="No users match the current filters. Try clearing them."
+            />
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Role</th>
+                  <th>Teams</th>
+                  <th>Verified</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th className="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredUsers.map((user) => (
+                  <tr key={user.id}>
+                    <td>
+                      <div className="user-cell">
+                        <span className="user-cell-name">{displayName(user.name, user.email)}</span>
+                        {user.name ? <span className="user-cell-email muted">{user.email}</span> : null}
+                      </div>
+                    </td>
+                    <td>{user.isAdmin ? 'Admin' : 'Member'}</td>
                 <td>
                   {user.isAdmin ? (
                     <span className="muted">All teams</span>
@@ -139,8 +166,10 @@ export function UsersPage() {
                 </td>
               </tr>
             ))}
-          </tbody>
-        </table>
+              </tbody>
+            </table>
+          )}
+        </>
       )}
 
       {showCreate ? <CreateUserDialog teams={teams} onClose={() => setShowCreate(false)} /> : null}

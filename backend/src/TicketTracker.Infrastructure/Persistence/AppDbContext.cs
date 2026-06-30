@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TicketTracker.Application.Abstractions;
+using TicketTracker.Application.Validation;
 using TicketTracker.Domain.Entities;
 using TicketTracker.Domain.Enums;
 
@@ -45,6 +46,8 @@ public sealed class AppDbContext : DbContext, IAppDbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).ValueGeneratedNever();
             e.Property(x => x.Email).HasMaxLength(320).IsRequired();
+            // Optional display name (nullable). Falls back to email in the UI when null.
+            e.Property(x => x.Name).HasColumnName("name").HasMaxLength(FieldLimits.NameMax);
             e.Property(x => x.EmailNormalized).HasColumnName("email_normalized").HasMaxLength(320).IsRequired();
             e.Property(x => x.PasswordHash).HasColumnName("password_hash").IsRequired();
             e.Property(x => x.EmailVerified).HasColumnName("email_verified").IsRequired();

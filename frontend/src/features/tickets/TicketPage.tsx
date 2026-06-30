@@ -22,6 +22,7 @@ import type {
 } from '@/api/types';
 import { stateOptions, typeOptions } from '@/lib/labels';
 import { formatUtc } from '@/lib/time';
+import { displayName } from '@/lib/displayName';
 import { errorMessage, isApiErrorCode } from '@/lib/errors';
 import { useTeams } from '@/features/teams/useTeams';
 import { useEpics } from '@/features/epics/useEpics';
@@ -256,7 +257,7 @@ export function TicketPage() {
         {!isCreate && detail ? (
           <div className="ticket-meta-line">
             <span>{detail.id}</span>
-            <span className="dot">Created by {detail.createdByEmail}</span>
+            <span className="dot">Created by {displayName(detail.createdByName, detail.createdByEmail)}</span>
             <span className="dot">Created {formatUtc(detail.createdAt)}</span>
             <span className="dot">Modified {formatUtc(detail.modifiedAt)}</span>
           </div>
