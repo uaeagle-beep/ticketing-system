@@ -50,6 +50,12 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      # Build in the host network namespace so the build containers reach
+      # nuget.org / registry.npmjs.org reliably on hosts whose Docker bridge has
+      # broken IPv6 egress — otherwise `dotnet restore` / `npm` fail with
+      # NU1301 "Resource temporarily unavailable" (EAGAIN). Harmless where the
+      # default bridge already has working egress.
+      network: host
     restart: unless-stopped
     env_file:
       - .env
@@ -93,6 +99,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      network: host   # see api.build.network note above (reliable nuget/npm fetch)
     restart: unless-stopped
     ports:
       # host:container — open the app at http://localhost:${WEB_PORT:-8080}.
