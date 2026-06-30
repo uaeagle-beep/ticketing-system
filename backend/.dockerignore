@@ -1,0 +1,23 @@
+# Build artifacts
+**/bin/
+**/obj/
+**/out/
+**/publish/
+
+# IDE / editor
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Local tooling caches
+**/.nuget/
+
+# Test results
+**/TestResults/
+
+# Misc
+**/*.md
+.git/
+.gitignore

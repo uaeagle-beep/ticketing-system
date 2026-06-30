@@ -1,0 +1,37 @@
+// Map API errors to user-facing messages. Falls back to the server-provided
+// message, then to a generic message, so every error surface is human-readable
+// (NFR-USE-3).
+
+import { ApiError } from '@/api/client';
+
+const FRIENDLY: Record<string, string> = {
+  duplicate_team_name: 'A team with this name already exists.',
+  team_has_children:
+    'Cannot delete a team that still has tickets or epics. Remove them first.',
+  epic_referenced_by_tickets:
+    'Cannot delete an epic that is referenced by tickets. Reassign or remove those tickets first.',
+  epic_team_mismatch: 'The selected epic does not belong to the ticket’s team.',
+  invalid_credentials: 'Invalid email or password.',
+  account_not_verified:
+    'Your account is not verified. Check your email or request a new verification link.',
+  invalid_or_expired_token:
+    'This verification link is invalid or has expired. Request a new one below.',
+  not_found: 'The requested item could not be found.',
+  unauthorized: 'Your session has expired. Please log in again.',
+  service_unavailable: 'The server is unavailable. Please try again in a moment.',
+};
+
+export function errorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    // Prefer per-field validation text when present (most specific).
+    const fieldText = err.fieldErrorText();
+    if (err.code === 'validation_error' && fieldText) return fieldText;
+    return FRIENDLY[err.code] ?? err.message ?? 'Something went wrong.';
+  }
+  if (err instanceof Error) return err.message;
+  return 'Something went wrong.';
+}
+
+export function isApiErrorCode(err: unknown, code: string): boolean {
+  return err instanceof ApiError && err.code === code;
+}

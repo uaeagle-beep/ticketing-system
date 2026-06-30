@@ -1,0 +1,15 @@
+# .NET build artifacts
+bin/
+obj/
+out/
+publish/
+
+# Rider / VS
+.vs/
+.idea/
+*.user
+
+# Local EF / test scratch
+*.db
+*.db-shm
+*.db-wal

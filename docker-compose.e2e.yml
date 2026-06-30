@@ -1,0 +1,72 @@
+# =============================================================================
+# E2E override — adds a Mailpit mail catcher and points the API's SMTP at it.
+# =============================================================================
+# Use TOGETHER with the base compose file (the base defines db / api / web):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build -d
+#
+# Why: in normal operation the API sends verification email through
+# relay1.dataart.com (SMTP_HOST in .env / appsettings.json), which an automated
+# E2E run can't read. This override starts `mailpit` (a local SMTP sink + REST
+# API) and overrides the API's SMTP_* env so every verification email is
+# captured by Mailpit instead. The Playwright happy-path then reads the
+# verification link from Mailpit's REST API (frontend/e2e/helpers/mailpit.ts).
+#
+# Env key names below match the API's configuration binding exactly
+# (backend/.../Program.cs reads SMTP_HOST / SMTP_PORT / SMTP_USE_STARTTLS via
+# IConfiguration.GetValue, and .env.example documents the same keys). Values set
+# here take precedence over the base service's env_file (.env).
+#
+# Tear down (and wipe the DB volume) with:
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml down -v
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Mail catcher. SMTP on 1025 (where the API sends), web UI + REST API on 8025
+  # (where the E2E test reads). 8025 is published so the test runner — whether on
+  # the host or in CI — can reach the Mailpit REST API at http://localhost:8025.
+  # ---------------------------------------------------------------------------
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    environment:
+      # Accept mail without auth/TLS so the API can submit on plain 1025.
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+    ports:
+      # host:container — Mailpit web UI + REST API. SMTP (1025) stays internal.
+      - "8025:8025"
+    healthcheck:
+      # Mailpit ships without wget/curl in some tags; the busybox `nc` probe just
+      # confirms the HTTP port is accepting connections. Falls back to exit 0 so a
+      # missing tool never wrongly marks the catcher unhealthy.
+      test:
+        [
+          "CMD-SHELL",
+          "nc -z localhost 8025 || wget -qO- http://localhost:8025/readyz >/dev/null 2>&1 || exit 0",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - ticketing
+
+  # ---------------------------------------------------------------------------
+  # Redirect the API's outgoing SMTP to Mailpit (host `mailpit`, port 1025, no
+  # STARTTLS). All other API config still comes from .env (env_file in the base).
+  # ---------------------------------------------------------------------------
+  api:
+    environment:
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_USE_STARTTLS: "false"
+      # Leave relay credentials empty — the local catcher is unauthenticated.
+      SMTP_USERNAME: ""
+      SMTP_PASSWORD: ""
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started

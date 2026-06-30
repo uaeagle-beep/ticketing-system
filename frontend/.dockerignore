@@ -1,0 +1,17 @@
+node_modules
+dist
+dist-ssr
+.vite
+.git
+.gitignore
+.env
+.env.*
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+Dockerfile
+.dockerignore
+README.md
+.DS_Store

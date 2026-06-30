@@ -1,0 +1,162 @@
+name: CI
+
+# Build + test on every push and pull request.
+#
+# Jobs:
+#   backend        — dotnet test the full solution (in-memory SQLite + fake email
+#                    sender, ADR-0002/0004: no Docker, no Postgres needed).
+#   frontend-unit  — Vitest jsdom unit/component suite (network mocked via MSW).
+#   e2e            — Playwright against the FULL Docker stack + Mailpit. Heavier
+#                    and environment-sensitive, so it does not block the merge
+#                    signal (continue-on-error) but still runs and uploads its
+#                    report/traces for inspection.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  backend:
+    name: Backend (dotnet test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.x"
+
+      - name: Restore
+        run: dotnet restore backend/TicketTracker.sln
+
+      - name: Test
+        run: dotnet test backend/TicketTracker.sln --configuration Release --no-restore --verbosity normal
+
+  # ---------------------------------------------------------------------------
+  frontend-unit:
+    name: Frontend unit (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+
+      - name: Install dependencies
+        working-directory: frontend
+        # Prefer the reproducible `npm ci` when a lockfile is committed; fall back
+        # to `npm install` so CI still works before the first lockfile commit
+        # (Node/npm is not available on the authoring machine to generate it).
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+      - name: Run unit tests
+        working-directory: frontend
+        run: npm run test -- --run
+
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: E2E (Playwright + Docker stack)
+    runs-on: ubuntu-latest
+    # E2E spins up the whole stack and depends on a working mail round-trip; keep
+    # it from blocking the overall pass/fail while still surfacing failures + the
+    # HTML report. Flip this to `false` once the suite is proven stable in CI.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create .env from template
+        # The base compose api uses `env_file: .env` (gitignored). The example
+        # defaults are fine for CI; the E2E override redirects SMTP to Mailpit.
+        run: cp .env.example .env
+
+      - name: Build and start the stack (with Mailpit override)
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build -d
+
+      - name: Wait for the API to be ready
+        # /health/ready (proxied by nginx) returns 200 only once EF Core
+        # migrations have applied (ADR-0003, API_CONTRACT §8.2).
+        run: |
+          echo "Waiting for http://localhost:8080/health/ready ..."
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/health/ready >/dev/null 2>&1; then
+              echo "API is ready."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for the API to become ready." >&2
+          docker compose -f docker-compose.yml -f docker-compose.e2e.yml ps
+          docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs --tail=200 api
+          exit 1
+
+      - name: Wait for Mailpit to be reachable
+        run: |
+          echo "Waiting for Mailpit REST API on http://localhost:8025 ..."
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8025/api/v1/messages >/dev/null 2>&1; then
+              echo "Mailpit is ready."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for Mailpit." >&2
+          docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs --tail=100 mailpit
+          exit 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps
+
+      - name: Run E2E tests
+        working-directory: frontend
+        env:
+          # The stack is published on localhost:8080 (web) and localhost:8025 (Mailpit).
+          E2E_BASE_URL: http://localhost:8080
+          MAILPIT_BASE_URL: http://localhost:8025
+        run: npm run e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 14
+
+      - name: Upload Playwright traces / results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: frontend/test-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Dump stack logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs --tail=300
+
+      - name: Tear down the stack
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml down -v

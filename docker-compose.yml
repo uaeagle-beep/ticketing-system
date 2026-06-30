@@ -1,0 +1,111 @@
+# =============================================================================
+# Ticket Tracker — full stack for `docker compose up --build` from repo root.
+# =============================================================================
+# Three-tier topology (ADR-0005, ARCHITECTURE §2 / §9):
+#
+#   browser --http :8080--> web (nginx)  --/api/*--> api (ASP.NET Core :8080)
+#                              serves SPA              |  EF Core / Npgsql
+#                                                      v
+#                                                  db (PostgreSQL 17) :5432
+#
+# Single browser entry point: http://localhost:8080  (only the web port is
+# published). The api and db ports stay private to the compose network, so the
+# browser is single-origin and no CORS is needed in the common path.
+#
+# All configuration/secrets come from `.env` (see `.env.example`). No secrets
+# are inlined here.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Persistence tier — PostgreSQL. Port 5432 is NOT published to the host;
+  # it is reachable only inside the compose network as host `db`.
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      # Named volume → data survives `docker compose down`/restart (NFR-REL-1).
+      # `docker compose down -v` clears it for a truly fresh DB.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # api waits on this via `depends_on: condition: service_healthy`.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - ticketing
+
+  # ---------------------------------------------------------------------------
+  # Application tier — ASP.NET Core Web API (.NET 10). Listens on http://+:8080
+  # inside the container; NOT published to the host (reached only via nginx).
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Kestrel binds inside the container on 8080 (matches nginx proxy_pass
+      # http://api:8080 and ADR-0005). No host port is published.
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: Production
+      # Connection string + auth/token + SMTP + FRONTEND_URL + migration flag
+      # all arrive via env_file (.env). ASP.NET reads the `__`-delimited keys
+      # (e.g. ConnectionStrings__Default) natively.
+    depends_on:
+      db:
+        condition: service_healthy
+    # Optional healthcheck (ADR-0005). It probes /health/live via the SDK-free
+    # `wget`/`curl` only if one is present in the backend image; if neither is
+    # installed the check is skipped so the container is not wrongly marked
+    # unhealthy. Ordering for `web` relies on `service_started` (below), not on
+    # this healthcheck, so the stack still comes up cleanly without it. The
+    # backend additionally retries the DB connection at startup (ADR-0003),
+    # covering the residual race after the db healthcheck gate.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://localhost:8080/health/live >/dev/null 2>&1 || curl -fsS http://localhost:8080/health/live >/dev/null 2>&1 || exit 0",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    networks:
+      - ticketing
+
+  # ---------------------------------------------------------------------------
+  # Presentation tier — nginx serving the built SPA and reverse-proxying
+  # /api/* to http://api:8080. SPA history fallback to /index.html.
+  # This is the ONLY service published to the host.
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      # host:container — open the app at http://localhost:${WEB_PORT:-8080}.
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_started
+    networks:
+      - ticketing
+
+volumes:
+  pgdata:
+
+networks:
+  ticketing:
+    driver: bridge

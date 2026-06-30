@@ -1,0 +1,63 @@
+# =============================================================================
+# Ticket Tracker — .gitignore (.NET backend + Node frontend + general)
+# =============================================================================
+
+# ---- Secrets / local environment (NEVER commit) ----------------------------
+# Real configuration & secrets live here; only .env.example is committed.
+.env
+.env.*
+!.env.example
+
+# ---- .NET / C# backend ------------------------------------------------------
+bin/
+obj/
+out/
+[Dd]ebug/
+[Rr]elease/
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+project.lock.json
+artifacts/
+# EF Core / tooling
+*.dbmdl
+# Test results / coverage
+[Tt]est[Rr]esults/
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+coverage/
+# Rider / Visual Studio / VS Code
+.vs/
+.idea/
+*.DotSettings.user
+
+# ---- Node / frontend --------------------------------------------------------
+node_modules/
+dist/
+dist-ssr/
+build/
+.vite/
+.cache/
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+# Vite/local env overrides
+*.local
+
+# ---- Docker -----------------------------------------------------------------
+# (compose & Dockerfiles are committed; nothing to ignore by default)
+
+# ---- OS / editor noise ------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
