@@ -109,12 +109,12 @@ export function ConfirmDialog({
         // Shift+Tab from the first element (or from outside) wraps to the last.
         if (active === first || !dialog.contains(active)) {
           e.preventDefault();
-          last.focus();
+          last?.focus();
         }
       } else if (active === last || !dialog.contains(active)) {
         // Tab from the last element (or from outside) wraps to the first.
         e.preventDefault();
-        first.focus();
+        first?.focus();
       }
     };
 
