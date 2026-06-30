@@ -27,6 +27,8 @@ public sealed class AdminUsersController : ControllerBase
     {
         var result = await _users.CreateAsync(
             request ?? new CreateUserRequest(null, null, false, null), ct);
+        // The body may carry a once-shown generated password — forbid caching anywhere (SEC-4).
+        SetNoStore();
         return StatusCode(StatusCodes.Status201Created, result);
     }
 
@@ -48,5 +50,21 @@ public sealed class AdminUsersController : ControllerBase
 
     [HttpPost("{id:guid}/reset-password")]
     public async Task<ActionResult<ResetPasswordResponse>> ResetPassword(Guid id, CancellationToken ct)
-        => Ok(await _users.ResetPasswordAsync(id, ct));
+    {
+        var result = await _users.ResetPasswordAsync(id, ct);
+        // The body carries a once-shown generated password — forbid caching anywhere (SEC-4).
+        SetNoStore();
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Marks the current response as non-cacheable for endpoints whose body may contain a
+    /// once-shown generated password (SEC-4): <c>Cache-Control: no-store</c> stops shared/browser
+    /// caches from retaining it; <c>Pragma: no-cache</c> covers HTTP/1.0 intermediaries.
+    /// </summary>
+    private void SetNoStore()
+    {
+        Response.Headers.CacheControl = "no-store";
+        Response.Headers.Pragma = "no-cache";
+    }
 }

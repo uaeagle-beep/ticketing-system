@@ -57,6 +57,9 @@ public sealed class UserManagementTests : IntegrationTestBase
         var create = await admin.PostAsJsonAsync("/api/admin/users",
             new { email = "newdev@dataart.com", password = (string?)null, isAdmin = false });
         create.StatusCode.Should().Be(HttpStatusCode.Created);
+        // SEC-4: a body that may carry a once-shown generated password must be non-cacheable.
+        create.Headers.CacheControl!.NoStore.Should().BeTrue("generated-password responses set Cache-Control: no-store");
+        create.Headers.Pragma.ToString().Should().Contain("no-cache", "and Pragma: no-cache for HTTP/1.0 caches");
         var body = await ReadAsync<CreateUserResponseDto>(create);
         body.GeneratedPassword.Should().NotBeNullOrWhiteSpace("a server-generated password is returned once");
         body.User.EmailVerified.Should().BeTrue("admin-created users are pre-verified (UM-3)");
@@ -220,6 +223,9 @@ public sealed class UserManagementTests : IntegrationTestBase
 
         var reset = await admin.PostAsJsonAsync($"/api/admin/users/{memberId}/reset-password", new { });
         reset.StatusCode.Should().Be(HttpStatusCode.OK);
+        // SEC-4: the reset response carries a once-shown password — it must be non-cacheable.
+        reset.Headers.CacheControl!.NoStore.Should().BeTrue("reset-password responses set Cache-Control: no-store");
+        reset.Headers.Pragma.ToString().Should().Contain("no-cache", "and Pragma: no-cache for HTTP/1.0 caches");
         var newPassword = (await ReadAsync<ResetPasswordResponseDto>(reset)).GeneratedPassword;
         newPassword.Should().NotBeNullOrWhiteSpace();
 

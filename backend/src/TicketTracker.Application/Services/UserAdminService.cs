@@ -1,4 +1,6 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using TicketTracker.Application.Abstractions;
 using TicketTracker.Application.Common;
 using TicketTracker.Application.Dtos;
@@ -21,19 +23,22 @@ public sealed class UserAdminService
     private readonly ICurrentUser _currentUser;
     private readonly IPasswordHasher _hasher;
     private readonly IPasswordGenerator _passwordGenerator;
+    private readonly ILogger<UserAdminService> _logger;
 
     public UserAdminService(
         IAppDbContext db,
         IClock clock,
         ICurrentUser currentUser,
         IPasswordHasher hasher,
-        IPasswordGenerator passwordGenerator)
+        IPasswordGenerator passwordGenerator,
+        ILogger<UserAdminService> logger)
     {
         _db = db;
         _clock = clock;
         _currentUser = currentUser;
         _hasher = hasher;
         _passwordGenerator = passwordGenerator;
+        _logger = logger;
     }
 
     // ----- List (§4.2) -----
@@ -114,6 +119,11 @@ public sealed class UserAdminService
 
         await _db.SaveChangesAsync(ct);
 
+        // Audit trail for a privileged account-lifecycle action (SEC-3). NEVER log the password/hash.
+        await LogAdminActionAsync("create_user", user.Id, user.Email,
+            "isAdmin={IsAdmin} teamCount={TeamCount}",
+            extraArg0: request.IsAdmin, extraArg1: teamIds.Count, ct: ct);
+
         var dto = await ToDtoAsync(user.Id, ct);
         return new CreateUserResponse(dto, generated ? password : null);
     }
@@ -127,15 +137,28 @@ public sealed class UserAdminService
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, ct)
             ?? throw ServiceException.NotFound("User not found.");
 
-        // Demotion of the last active admin is forbidden (INV-2). Promotion is always allowed.
-        if (user.IsAdmin && !request.IsAdmin)
-            await EnsureNotLastActiveAdminAsync(user.Id, ct);
+        var isDemotion = user.IsAdmin && !request.IsAdmin;
 
         if (user.IsAdmin != request.IsAdmin) // idempotent: same value is a no-op success
         {
-            user.IsAdmin = request.IsAdmin;
-            await _db.SaveChangesAsync(ct);
+            if (isDemotion)
+            {
+                // Demotion of the last active admin is forbidden (INV-2). The guard COUNT and the
+                // mutation must be atomic and serialized against a concurrent demote/block of the
+                // other final admin (SEC-1 TOCTOU, SEC-2): run them in one serializable, retriable
+                // transaction so two parallel demotes cannot both observe "another admin exists"
+                // and both commit (provider-agnostic; see GuardedMutateAsync).
+                await GuardedMutateAsync(user.Id, () => user.IsAdmin = request.IsAdmin, ct);
+            }
+            else // promotion: no invariant to protect, plain save
+            {
+                user.IsAdmin = request.IsAdmin;
+                await _db.SaveChangesAsync(ct);
+            }
         }
+
+        await LogAdminActionAsync(request.IsAdmin ? "promote_admin" : "demote_admin",
+            user.Id, user.Email, ct: ct);
 
         return await ToDtoAsync(user.Id, ct);
     }
@@ -178,6 +201,9 @@ public sealed class UserAdminService
         if (changed)
             await _db.SaveChangesAsync(ct);
 
+        await LogAdminActionAsync("set_teams", user.Id, user.Email,
+            "teamCount={TeamCount}", extraArg0: desired.Count, ct: ct);
+
         return await ToDtoAsync(user.Id, ct);
     }
 
@@ -192,21 +218,19 @@ public sealed class UserAdminService
 
         if (!user.IsBlocked)
         {
-            // Blocking the last active admin would leave zero usable admins (INV-2).
-            await EnsureNotLastActiveAdminAsync(user.Id, ct);
-
-            // Set blocked + purge ALL of the user's sessions atomically (ASR-2, INV-3, R-9).
-            var strategy = _db.Database.CreateExecutionStrategy();
-            await strategy.ExecuteAsync(async () =>
+            // Blocking the last active admin would leave zero usable admins (INV-2). The guard COUNT,
+            // the block, and the session purge run in ONE serializable, retriable transaction so a
+            // concurrent demote/block of the other final admin cannot also pass the guard (SEC-1
+            // TOCTOU). Re-checking inside the same tx makes count+mutate atomic (ASR-2, INV-3, R-9).
+            await GuardedMutateAsync(user.Id, async () =>
             {
-                await using var tx = await _db.Database.BeginTransactionAsync(ct);
                 user.IsBlocked = true;
                 var sessions = await _db.Sessions.Where(s => s.UserId == user.Id).ToListAsync(ct);
                 if (sessions.Count > 0)
                     _db.Sessions.RemoveRange(sessions);
-                await _db.SaveChangesAsync(ct);
-                await tx.CommitAsync(ct);
-            });
+            }, ct);
+
+            await LogAdminActionAsync("block_user", user.Id, user.Email, ct: ct);
         }
 
         return await ToDtoAsync(user.Id, ct);
@@ -226,6 +250,8 @@ public sealed class UserAdminService
             user.IsBlocked = false;
             await _db.SaveChangesAsync(ct);
         }
+
+        await LogAdminActionAsync("unblock_user", user.Id, user.Email, ct: ct);
 
         return await ToDtoAsync(user.Id, ct);
     }
@@ -260,6 +286,9 @@ public sealed class UserAdminService
             await tx.CommitAsync(ct);
         });
 
+        // Audit the reset (SEC-3). NEVER log the generated password or its hash.
+        await LogAdminActionAsync("reset_password", user.Id, user.Email, ct: ct);
+
         return new ResetPasswordResponse(password);
     }
 
@@ -291,9 +320,47 @@ public sealed class UserAdminService
     }
 
     /// <summary>
-    /// Guards INV-2: the operation must not remove the only ACTIVE admin (is_admin AND NOT is_blocked
-    /// AND email_verified). If <paramref name="targetUserId"/> is the sole such admin, throws
-    /// 409 last_admin_required. Counts the target as one of the active admins by definition.
+    /// Runs the last-admin-guarded <paramref name="mutate"/> atomically and race-safely (SEC-1/SEC-2).
+    /// The guard COUNT and the mutation execute inside ONE <see cref="IsolationLevel.Serializable"/>
+    /// transaction, run through the provider execution strategy (so Npgsql's retry policy can replay a
+    /// serialization failure — the Npgsql constraint behind fix 14e4424). Two concurrent demote/block
+    /// requests targeting the two final admins therefore cannot both pass the guard:
+    /// <list type="bullet">
+    /// <item>PostgreSQL: serializable isolation turns the write-skew (both read "1 other admin", both
+    /// demote) into a serialization failure on the second commit; the execution strategy retries it,
+    /// the re-COUNT now sees 0 other admins and it throws 409 last_admin_required.</item>
+    /// <item>SQLite (tests, EnsureCreated): a single writer serializes the transactions, so the second
+    /// reads the first's committed state, the re-COUNT sees 0 and it throws 409.</item>
+    /// </list>
+    /// External behavior is unchanged: a guard violation still surfaces as 409 last_admin_required.
+    /// </summary>
+    private Task GuardedMutateAsync(Guid targetUserId, Action mutate, CancellationToken ct)
+        => GuardedMutateAsync(targetUserId, () => { mutate(); return Task.CompletedTask; }, ct);
+
+    private async Task GuardedMutateAsync(Guid targetUserId, Func<Task> mutate, CancellationToken ct)
+    {
+        var strategy = _db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+
+            // Re-evaluate the invariant INSIDE the transaction, immediately before mutating, so the
+            // check and the write commit together — no TOCTOU window between COUNT and UPDATE.
+            await EnsureNotLastActiveAdminAsync(targetUserId, ct);
+
+            await mutate();
+
+            await _db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        });
+    }
+
+    /// <summary>
+    /// Guards INV-2: the operation must not remove the only ACTIVE admin. Active admin =
+    /// is_admin AND NOT is_blocked AND email_verified (the live predicate; ADR-0008 states
+    /// is_admin AND NOT is_blocked — see ПРИПУЩЕННЯ in handoff). If <paramref name="targetUserId"/>
+    /// is the sole such admin, throws 409 last_admin_required. Must be called inside the guard
+    /// transaction (see <see cref="GuardedMutateAsync(Guid, Func{Task}, CancellationToken)"/>).
     /// </summary>
     private async Task EnsureNotLastActiveAdminAsync(Guid targetUserId, CancellationToken ct)
     {
@@ -303,6 +370,48 @@ public sealed class UserAdminService
             throw new ServiceException(ServiceErrorCode.LastAdminRequired,
                 "The system must keep at least one active administrator.");
     }
+
+    /// <summary>
+    /// Emits a structured INFORMATION audit record for a privileged admin action (SEC-3): the acting
+    /// admin (id + email from <see cref="ICurrentUser"/>), the action, and the target (id + email).
+    /// NEVER logs passwords, hashes, or tokens. <paramref name="extra"/>/<paramref name="extraArgs"/>
+    /// append optional non-secret structured fields (e.g. team counts).
+    /// </summary>
+    private async Task LogAdminActionAsync(
+        string action, Guid targetUserId, string targetEmail,
+        string? extra = null, object? extraArg0 = null, object? extraArg1 = null,
+        CancellationToken ct = default)
+    {
+        var actorId = _currentUser.UserId;
+        var actorEmail = actorId is null ? "(unknown)" : await ResolveActorEmailAsync(actorId.Value, ct);
+
+        // Keep a single consistent message shape across all actions; structured args stay queryable.
+        const string baseTemplate =
+            "Admin audit: action={Action} actorId={ActorId} actorEmail={ActorEmail} targetId={TargetId} targetEmail={TargetEmail}";
+
+        if (extra is null)
+        {
+            _logger.LogInformation(baseTemplate, action, actorId, actorEmail, targetUserId, targetEmail);
+        }
+        else if (extraArg1 is null)
+        {
+            _logger.LogInformation(baseTemplate + " " + extra,
+                action, actorId, actorEmail, targetUserId, targetEmail, extraArg0);
+        }
+        else
+        {
+            _logger.LogInformation(baseTemplate + " " + extra,
+                action, actorId, actorEmail, targetUserId, targetEmail, extraArg0, extraArg1);
+        }
+    }
+
+    /// <summary>Resolves the acting admin's email for the audit log (cheap PK lookup, no tracking).</summary>
+    private async Task<string> ResolveActorEmailAsync(Guid actorId, CancellationToken ct)
+        => await _db.Users.AsNoTracking()
+               .Where(u => u.Id == actorId)
+               .Select(u => u.Email)
+               .FirstOrDefaultAsync(ct)
+           ?? "(unknown)";
 
     private async Task<AdminUserDto> ToDtoAsync(Guid userId, CancellationToken ct)
     {
