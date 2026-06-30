@@ -178,26 +178,31 @@ public sealed class AuthService
         var now = _clock.UtcNow;
 
         // Single-use + atomic: do consumption inside a transaction so a concurrent second
-        // verify cannot both succeed (V3).
-        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        // verify cannot both succeed (V3). Run via the provider execution strategy because
+        // Npgsql's retry strategy forbids user-initiated transactions outside one.
+        var strategy = _db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
-        var token = await _db.EmailVerificationTokens
-            .FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
+            var token = await _db.EmailVerificationTokens
+                .FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
 
-        // Unknown, already consumed, or expired (now >= expires_at, A31) => 400.
-        if (token is null || token.ConsumedAt is not null || now >= token.ExpiresAt)
-            throw new ServiceException(ServiceErrorCode.InvalidOrExpiredToken,
-                "This verification link is invalid or has expired. Request a new one.");
+            // Unknown, already consumed, or expired (now >= expires_at, A31) => 400.
+            if (token is null || token.ConsumedAt is not null || now >= token.ExpiresAt)
+                throw new ServiceException(ServiceErrorCode.InvalidOrExpiredToken,
+                    "This verification link is invalid or has expired. Request a new one.");
 
-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == token.UserId, ct);
-        if (user is null)
-            throw new ServiceException(ServiceErrorCode.InvalidOrExpiredToken,
-                "This verification link is invalid or has expired. Request a new one.");
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == token.UserId, ct);
+            if (user is null)
+                throw new ServiceException(ServiceErrorCode.InvalidOrExpiredToken,
+                    "This verification link is invalid or has expired. Request a new one.");
 
-        token.ConsumedAt = now;
-        user.EmailVerified = true;
-        await _db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
+            token.ConsumedAt = now;
+            user.EmailVerified = true;
+            await _db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        });
 
         return new MessageResponse("Email verified — your account is ready to use.");
     }
@@ -220,18 +225,25 @@ public sealed class AuthService
 
         var now = _clock.UtcNow;
 
-        // Invalidate all prior unused tokens then issue a new one, atomically (V4).
-        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        // Invalidate all prior unused tokens then issue a new one, atomically (V4). Run via the
+        // provider execution strategy: Npgsql's retry strategy forbids user-initiated
+        // transactions unless they execute as a retriable unit.
+        string rawToken = string.Empty;
+        var strategy = _db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
-        var priorUnused = await _db.EmailVerificationTokens
-            .Where(t => t.UserId == user.Id && t.ConsumedAt == null)
-            .ToListAsync(ct);
-        foreach (var t in priorUnused)
-            t.ConsumedAt = now;
+            var priorUnused = await _db.EmailVerificationTokens
+                .Where(t => t.UserId == user.Id && t.ConsumedAt == null)
+                .ToListAsync(ct);
+            foreach (var t in priorUnused)
+                t.ConsumedAt = now;
 
-        var rawToken = await IssueVerificationTokenAsync(user, now, ct);
-        await _db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
+            rawToken = await IssueVerificationTokenAsync(user, now, ct);
+            await _db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        });
 
         await TrySendVerificationEmailAsync(user.Email, rawToken, ct);
 
