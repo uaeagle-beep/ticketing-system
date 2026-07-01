@@ -106,11 +106,13 @@ test('signup -> verify -> login -> team -> epic -> ticket -> comment -> drag per
   await expect(page.getByRole('navigation').getByRole('link', { name: 'Users' })).toBeVisible();
 
   // ---- 4. Create a team (now an admin). ----
-  // With no teams yet, the board shows the "No teams yet" empty state with a
-  // button into Team management, where an admin can create the first team.
-  await page.getByRole('button', { name: 'Go to Team management' }).click();
+  // Go to Team management via the nav. This is robust whether or not teams already
+  // exist: an admin sees ALL teams, so the board's "No teams yet" empty state (and
+  // its "Go to Team management" button) may be absent. Match the "Teams" heading
+  // exactly so it doesn't also resolve the "No teams yet" empty-state heading.
+  await page.getByRole('navigation').getByRole('link', { name: 'Teams' }).click();
   await expect(page).toHaveURL(/\/teams/);
-  await expect(page.getByRole('heading', { name: 'Teams' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Teams', exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: '+ Create team' }).first().click();
   await page.getByPlaceholder('Team name').fill(TEAM_NAME);
@@ -131,7 +133,7 @@ test('signup -> verify -> login -> team -> epic -> ticket -> comment -> drag per
   await page.getByRole('button', { name: 'Create', exact: true }).click();
 
   // Epic shows up in the epics table for the selected team.
-  await expect(page.getByRole('cell', { name: EPIC_TITLE })).toBeVisible();
+  await expect(page.getByRole('cell', { name: EPIC_TITLE, exact: true })).toBeVisible();
 
   // ---- 6. Create a ticket (via the board's "+ New ticket"). ----
   await page.getByRole('navigation').getByRole('link', { name: 'Board' }).click();

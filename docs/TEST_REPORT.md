@@ -10,7 +10,7 @@ _Generated: 2026-07-01 · commit `d08308e` (main)_
 | **Frontend** (`vitest`) | unit + component (jsdom) | 24 | **168** | ✅ **168 passed / 0 failed** | ~17 s |
 | **Total automated (unit/component/integration)** | | 40 | **402** | ✅ **all green** | |
 | Playwright E2E — **smoke** | browser (vs live prod) | 1 spec | **6** | ✅ **6 passed** (against https://honcharenko.pp.ua) | ~17 s |
-| Playwright E2E — happy-path | browser end-to-end | 1 spec | 1 | 🟡 updated for the new authz (admin bootstrap in the e2e DB); wired into CI (`e2e` job, Docker + Mailpit). Not executed in this local run (no Docker) | |
+| Playwright E2E — happy-path | browser end-to-end | 1 spec | **1** | ✅ **1 passed** on an isolated server stack (`tt-e2e` + Mailpit); CI-wired (`e2e` job) | ~10 s |
 
 **Verdict: GO** — full regression is green; no failures, no skips.
 
@@ -84,7 +84,7 @@ _Generated: 2026-07-01 · commit `d08308e` (main)_
 
 ## 6. Not covered by the automated run (honest gaps)
 
-- **Playwright E2E — smoke** was executed against live prod (6/6 ✅). The **happy-path** spec has been **updated for the User-Management authz model**: after signup → verify → login it promotes the account to admin directly in the e2e Postgres (`docker compose exec db psql`) and reloads (the SPA refetches `/me`; isAdmin is read fresh per request), then drives team → epic → ticket → comment → drag → reload-persists. It is wired into the CI `e2e` job (Docker stack + Mailpit) but is **not run in this local regression** (no Docker locally) — it executes in CI or against a live compose stack.
+- **Playwright E2E — smoke** was executed against live prod (6/6 ✅). The **happy-path** spec has been **updated for the User-Management authz model**: after signup → verify → login it promotes the account to admin directly in the e2e Postgres (`docker compose exec db psql`) and reloads (the SPA refetches `/me`; isAdmin is read fresh per request), then drives team → epic → ticket → comment → drag → reload-persists. It is wired into the CI `e2e` job (Docker stack + Mailpit) and was **verified green (1 passed) on an isolated server stack** (separate compose project `tt-e2e` on port 8090 + Mailpit, prod untouched). Running it surfaced and fixed three stale selectors in the original (never-executed) spec: `Teams` heading and the epic cell needed `exact` matching, and team navigation now uses the nav link (robust when teams already exist / an admin sees all teams).
 - **PostgreSQL-specific paths**: integration tests use SQLite (`EnsureCreated`). The Npgsql data-migration (existing users → admin), citext/collation nuances, and serializable-retry under real concurrency are exercised only on the Postgres/prod path + the CI parity guard — verified manually on deploy, not in this unit run.
 - **Real SMTP / email delivery** (`IEmailSender` is faked) — verified manually on prod (relay1/mail.honcharenko.pp.ua).
 - **Docker build / `docker compose up`** is not a test — validated on each deploy.
