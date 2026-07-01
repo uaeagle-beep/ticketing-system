@@ -9,7 +9,7 @@
 //   - VerifyEmailPage.tsx  (heading "Email verification"; invalid token ->
 //                           banner-error + "Resend verification email" button)
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/test';
 
 test.describe('public pages smoke', () => {
   test('login page renders its core fields and links', async ({ page }) => {

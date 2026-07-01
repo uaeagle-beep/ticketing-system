@@ -25,6 +25,12 @@ RUN dotnet publish src/TicketTracker.Api/TicketTracker.Api.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
+# Attachments blob root (Wave 3, ADR-0018). Create it owned by the non-root 'app' user
+# BEFORE switching to USER app: when the named `attachments` volume is first mounted here,
+# Docker seeds the empty volume with this path's owner/mode, so the volume is app-writable.
+# Without this the runtime-created mount is root:root and uploads fail with EACCES.
+RUN mkdir -p /var/lib/tickettracker/attachments && chown -R app:app /var/lib/tickettracker
+
 # Non-root user (ADR-0005). The aspnet image ships a pre-created 'app' user.
 USER app
 

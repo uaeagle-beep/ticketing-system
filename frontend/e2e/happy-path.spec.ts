@@ -13,7 +13,8 @@
 //   SignupPage / VerifyEmailPage / LoginPage / AppLayout / TeamsPage /
 //   EpicsPage / BoardPage / TicketPage / CommentsPanel / BoardColumn / TicketCard.
 
-import { test, expect, type Page, type Locator } from '@playwright/test';
+import { test, expect } from './helpers/test';
+import type { Page, Locator } from '@playwright/test';
 import {
   clearMailpit,
   waitForVerificationLink,
@@ -228,6 +229,26 @@ test('signup -> verify -> login -> team -> epic -> ticket -> comment -> drag per
 
   // After the optimistic move + PATCH, the card should be in the target column.
   await expect(columnFor(page, 'in_progress')).toContainText(TICKET_TITLE);
+
+  // The card moves OPTIMISTICALLY (instant), so before reloading we must wait for the
+  // state-change PATCH to actually PERSIST server-side — otherwise the reload races the
+  // in-flight request and refetches the old state. Poll the ticket's persisted state via
+  // the app's authenticated fetch (endpoint-agnostic; SignalR keeps the socket "busy" so
+  // networkidle is unreliable here).
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async (tid) => {
+          const token = window.localStorage.getItem('tt.auth.token');
+          const res = await fetch(`/api/tickets/${tid}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          if (!res.ok) return null;
+          return ((await res.json()) as { state?: string }).state ?? null;
+        }, ticketId),
+      { timeout: 10_000 },
+    )
+    .toBe('in_progress');
 
   // Persistence check: reload and re-select the team; the move must survive.
   await page.reload();

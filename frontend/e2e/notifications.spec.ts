@@ -21,7 +21,8 @@
 // PREREQS (same as happy-path): the E2E stack must be up so verification mail lands in Mailpit:
 //   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build -d
 
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from './helpers/test';
+import type { Page } from '@playwright/test';
 import { clearMailpit } from './helpers/mailpit';
 import { promoteToAdmin } from './helpers/adminBootstrap';
 import { signUpVerifyLogin, logIn, logOut, type E2eAccount } from './helpers/authFlow';
