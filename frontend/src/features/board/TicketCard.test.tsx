@@ -9,9 +9,13 @@ const ticket: TicketCardModel = {
   id: 'tk1042-login-fails',
   type: 'bug',
   state: 'in_progress',
+  priority: 'high',
   title: 'Login fails',
   epicId: 'ep01-billing-revamp',
   epicTitle: 'Billing Revamp',
+  dueDate: null,
+  isOverdue: false,
+  assignees: [],
   // ISO-8601 UTC; relativeTime renders something containing "ago" or a date.
   modifiedAt: '2026-06-23T12:40:00Z',
 };

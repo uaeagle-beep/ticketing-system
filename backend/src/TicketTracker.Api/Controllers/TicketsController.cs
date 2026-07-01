@@ -28,8 +28,13 @@ public sealed class TicketsController : ControllerBase
         [FromQuery] string? type,
         [FromQuery] Guid? epicId,
         [FromQuery] string? search,
+        [FromQuery] string? priority,
+        [FromQuery] Guid? assigneeId,
+        [FromQuery] bool assignedToMe,
+        [FromQuery] string? dueFilter,
         CancellationToken ct)
-        => Ok(await _tickets.GetBoardAsync(teamId, type, epicId, search, ct));
+        => Ok(await _tickets.GetBoardAsync(
+            teamId, type, epicId, search, priority, assigneeId, assignedToMe, dueFilter, ct));
 
     // ----- Detail (§6.2) -----
     [HttpGet("{id:guid}")]
@@ -55,6 +60,11 @@ public sealed class TicketsController : ControllerBase
     [HttpPatch("{id:guid}/state")]
     public async Task<ActionResult<TicketStateDto>> PatchState(Guid id, [FromBody] PatchTicketStateRequest request, CancellationToken ct)
         => Ok(await _tickets.PatchStateAsync(id, request ?? new PatchTicketStateRequest(null), ct));
+
+    // ----- Assignees full-set replace (§4.2) -----
+    [HttpPut("{id:guid}/assignees")]
+    public async Task<ActionResult<TicketDetailDto>> SetAssignees(Guid id, [FromBody] SetAssigneesRequest request, CancellationToken ct)
+        => Ok(await _tickets.SetAssigneesAsync(id, request ?? new SetAssigneesRequest(null), ct));
 
     // ----- Delete (§6.6) -----
     [HttpDelete("{id:guid}")]

@@ -12,7 +12,9 @@ namespace TicketTracker.Tests.Fakes;
 /// </summary>
 public sealed class FakeEmailSender : IEmailSender
 {
-    public sealed record SentEmail(string To, string Link);
+    public enum EmailKind { Verification, PasswordReset }
+
+    public sealed record SentEmail(string To, string Link, EmailKind Kind = EmailKind.Verification);
 
     private readonly ConcurrentQueue<SentEmail> _sent = new();
 
@@ -20,7 +22,13 @@ public sealed class FakeEmailSender : IEmailSender
 
     public Task SendVerificationEmailAsync(string toEmail, string verificationLink, CancellationToken ct)
     {
-        _sent.Enqueue(new SentEmail(toEmail, verificationLink));
+        _sent.Enqueue(new SentEmail(toEmail, verificationLink, EmailKind.Verification));
+        return Task.CompletedTask;
+    }
+
+    public Task SendPasswordResetEmailAsync(string toEmail, string resetLink, CancellationToken ct)
+    {
+        _sent.Enqueue(new SentEmail(toEmail, resetLink, EmailKind.PasswordReset));
         return Task.CompletedTask;
     }
 
@@ -28,6 +36,11 @@ public sealed class FakeEmailSender : IEmailSender
     public SentEmail? LastFor(string email)
         => _sent.Reverse()
             .FirstOrDefault(e => string.Equals(e.To, email, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The most recent email of the given kind captured for the address (case-insensitive), or null.</summary>
+    public SentEmail? LastFor(string email, EmailKind kind)
+        => _sent.Reverse()
+            .FirstOrDefault(e => e.Kind == kind && string.Equals(e.To, email, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Extract the raw <c>token</c> query-string value from a captured verification link.</summary>
     public static string ExtractToken(string verificationLink)

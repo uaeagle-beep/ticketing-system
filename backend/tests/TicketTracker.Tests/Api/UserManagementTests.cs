@@ -323,30 +323,13 @@ public sealed class UserManagementTests : IntegrationTestBase
             new { teamId = teamA.Id, type = "bug", title = "A", body = "x" }));
 
         var resp = await member.PutAsJsonAsync($"/api/tickets/{ticketA.Id}",
-            new { teamId = teamB.Id, type = "bug", title = "A", body = "x", state = "new", epicId = (Guid?)null });
+            new { teamId = teamB.Id, type = "bug", title = "A", body = "x", state = "new", priority = "medium", epicId = (Guid?)null });
         resp.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
-    // ============================================================== Self-signup default team + /me
-
-    [Fact]
-    public async Task Self_registered_user_joins_the_default_team_on_verify_and_me_reflects_it()
-    {
-        // Seed a "Demo Team" (the configured default) via an admin first.
-        var (adminToken, _, _) = await RegisterAdminAsync();
-        var admin = Authed(adminToken);
-        var demo = await ReadAsync<TeamDto>(await admin.PostAsJsonAsync("/api/teams", new { name = "Demo Team" }));
-
-        // A brand-new self-registration → verify → login (a MEMBER).
-        var (memberToken, _, _) = await RegisterMemberAsync("self@dataart.com");
-        var member = Authed(memberToken);
-
-        var me = await ReadAsync<UserDto>(await member.GetAsync("/api/auth/me"));
-        me.IsAdmin.Should().BeFalse();
-        me.IsBlocked.Should().BeFalse();
-        me.Teams.Should().NotBeNull();
-        me.Teams!.Should().ContainSingle(t => t.Id == demo.Id, "verify grants the default-team membership (req 8)");
-    }
+    // ============================================================== /me
+    // The self-signup default-team AUTO-CREATE branch (F-10, ADR-0011) is covered by
+    // DefaultTeamProvisioningTests (which runs with DEFAULT_SIGNUP_TEAM_NAME = "Demo Team").
 
     [Fact]
     public async Task Me_returns_isAdmin_isBlocked_and_teams()

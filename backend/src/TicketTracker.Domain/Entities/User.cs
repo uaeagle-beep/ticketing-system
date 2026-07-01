@@ -43,6 +43,7 @@ public class User
     public DateTime CreatedAt { get; set; }
 
     public ICollection<EmailVerificationToken> VerificationTokens { get; set; } = new List<EmailVerificationToken>();
+    public ICollection<PasswordResetToken> PasswordResetTokens { get; set; } = new List<PasswordResetToken>();
     public ICollection<Session> Sessions { get; set; } = new List<Session>();
 
     /// <summary>Team memberships (ADR-0007). Ignored while <see cref="IsAdmin"/> is true.</summary>

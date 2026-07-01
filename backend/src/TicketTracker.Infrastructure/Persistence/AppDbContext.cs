@@ -19,6 +19,7 @@ public sealed class AppDbContext : DbContext, IAppDbContext
 
     public DbSet<User> Users => Set<User>();
     public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
+    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<Session> Sessions => Set<Session>();
     public DbSet<Team> Teams => Set<Team>();
     public DbSet<Epic> Epics => Set<Epic>();
@@ -26,6 +27,7 @@ public sealed class AppDbContext : DbContext, IAppDbContext
     public DbSet<Comment> Comments => Set<Comment>();
     public DbSet<WipLimit> WipLimits => Set<WipLimit>();
     public DbSet<UserTeam> UserTeams => Set<UserTeam>();
+    public DbSet<TicketAssignee> TicketAssignees => Set<TicketAssignee>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -38,6 +40,9 @@ public sealed class AppDbContext : DbContext, IAppDbContext
         var ticketStateConverter = new ValueConverter<TicketState, string>(
             v => EnumCanonical.ToCanonical(v),
             v => ParseState(v));
+        var ticketPriorityConverter = new ValueConverter<TicketPriority, string>(
+            v => EnumCanonical.ToCanonical(v),
+            v => ParsePriority(v));
 
         // ---------- User ----------
         b.Entity<User>(e =>
@@ -95,6 +100,27 @@ public sealed class AppDbContext : DbContext, IAppDbContext
             e.HasIndex(x => x.UserId);
             e.HasOne(x => x.User)
                 .WithMany(u => u.VerificationTokens)
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade); // auth artifacts owned by the user
+        });
+
+        // ---------- PasswordResetToken ----------
+        // Structural twin of EmailVerificationToken in its own table (F-01, ADR-0010): distinct TTL,
+        // single-use, no shared "token type" discriminator (avoids cross-flow acceptance).
+        b.Entity<PasswordResetToken>(e =>
+        {
+            e.ToTable("password_reset_tokens");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.UserId).HasColumnName("user_id").IsRequired();
+            e.Property(x => x.TokenHash).HasColumnName("token_hash").HasMaxLength(64).IsFixedLength().IsRequired();
+            e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            e.Property(x => x.ExpiresAt).HasColumnName("expires_at").IsRequired();
+            e.Property(x => x.ConsumedAt).HasColumnName("consumed_at");
+            e.HasIndex(x => x.TokenHash);
+            e.HasIndex(x => x.UserId);
+            e.HasOne(x => x.User)
+                .WithMany(u => u.PasswordResetTokens)
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Cascade); // auth artifacts owned by the user
         });
@@ -179,6 +205,7 @@ public sealed class AppDbContext : DbContext, IAppDbContext
                 t.HasCheckConstraint("ck_tickets_type", "type IN ('bug','feature','fix')");
                 t.HasCheckConstraint("ck_tickets_state",
                     "state IN ('new','ready_for_implementation','in_progress','ready_for_acceptance','done')");
+                t.HasCheckConstraint("ck_tickets_priority", "priority IN ('low','medium','high','urgent')");
             });
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).ValueGeneratedNever();
@@ -186,6 +213,12 @@ public sealed class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.EpicId).HasColumnName("epic_id");
             e.Property(x => x.Type).HasConversion(ticketTypeConverter).HasColumnName("type").HasMaxLength(16).IsRequired();
             e.Property(x => x.State).HasConversion(ticketStateConverter).HasColumnName("state").HasMaxLength(32).IsRequired();
+            // Priority stored as canonical lowercase text; CHECK backstop above. The model carries NO
+            // store default — the migration's AddColumn defaultValue "medium" backfills existing rows only
+            // (keeps has-pending-model-changes clean, WAVE1_DESIGN §3.1). New rows are app-set on create.
+            e.Property(x => x.Priority).HasConversion(ticketPriorityConverter).HasColumnName("priority").HasMaxLength(16).IsRequired();
+            // Optional calendar-day due date. DateOnly? -> PG 'date', SQLite TEXT 'YYYY-MM-DD' (ADR-0002).
+            e.Property(x => x.DueDate).HasColumnName("due_date");
             e.Property(x => x.Title).HasMaxLength(512).IsRequired();
             e.Property(x => x.Body).IsRequired();
             e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
@@ -235,6 +268,28 @@ public sealed class AppDbContext : DbContext, IAppDbContext
                 .HasForeignKey(x => x.AuthorId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
+
+        // ---------- TicketAssignee (assignment join) ----------
+        b.Entity<TicketAssignee>(e =>
+        {
+            e.ToTable("ticket_assignees");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.TicketId).HasColumnName("ticket_id").IsRequired();
+            e.Property(x => x.UserId).HasColumnName("user_id").IsRequired();
+            e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            // No user assigned to the same ticket twice (INV-W1).
+            e.HasIndex(x => new { x.TicketId, x.UserId }).IsUnique().HasDatabaseName("ux_ticket_assignees_ticket_user");
+            e.HasIndex(x => x.UserId); // "tickets assigned to user U" / "assigned to me" filter
+            e.HasOne(x => x.Ticket)
+                .WithMany(t => t.Assignees)
+                .HasForeignKey(x => x.TicketId)
+                .OnDelete(DeleteBehavior.Cascade); // assignment is not standalone content (mirrors Ticket→Comment)
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Restrict); // protect user integrity (mirrors created_by/author_id)
+        });
     }
 
     private static TicketType ParseType(string value)
@@ -246,4 +301,9 @@ public sealed class AppDbContext : DbContext, IAppDbContext
         => EnumCanonical.TryParseState(value, out var s)
             ? s
             : throw new InvalidOperationException($"Unknown ticket state in store: '{value}'.");
+
+    private static TicketPriority ParsePriority(string value)
+        => EnumCanonical.TryParsePriority(value, out var p)
+            ? p
+            : throw new InvalidOperationException($"Unknown ticket priority in store: '{value}'.");
 }

@@ -233,7 +233,7 @@ public sealed class WipLimitsTests : IntegrationTestBase
         var mover = await CreateAsync(ctx, "Mover", state: "new");
 
         var resp = await ctx.Client.PutAsJsonAsync($"/api/tickets/{mover.Id}",
-            new { teamId = ctx.TeamId, type = "bug", title = "Mover", body = "B", state = "in_progress", epicId = (Guid?)null });
+            new { teamId = ctx.TeamId, type = "bug", title = "Mover", body = "B", state = "in_progress", priority = "medium", epicId = (Guid?)null });
         resp.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await ReadErrorAsync(resp)).Code.Should().Be("wip_limit_reached");
     }
@@ -247,7 +247,7 @@ public sealed class WipLimitsTests : IntegrationTestBase
 
         // Edit the title but keep the same state — the ticket isn't arriving, so it's allowed.
         var resp = await ctx.Client.PutAsJsonAsync($"/api/tickets/{t.Id}",
-            new { teamId = ctx.TeamId, type = "bug", title = "A edited", body = "B", state = "in_progress", epicId = (Guid?)null });
+            new { teamId = ctx.TeamId, type = "bug", title = "A edited", body = "B", state = "in_progress", priority = "medium", epicId = (Guid?)null });
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
         (await ReadAsync<TicketDto>(resp)).Title.Should().Be("A edited");
     }

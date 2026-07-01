@@ -351,7 +351,7 @@ public sealed class AuthorizationMatrixTests : IntegrationTestBase
         // teamId stays A (accessible) but epicId references B → must NOT succeed (epic_team_mismatch 400,
         // never a 2xx that would attach the member's ticket to a foreign team's epic).
         var resp = await member.PutAsJsonAsync($"/api/tickets/{ticketA.Id}",
-            new { teamId = teamA.Id, type = "bug", title = "A", body = "x", state = "new", epicId = epicB.Id });
+            new { teamId = teamA.Id, type = "bug", title = "A", body = "x", state = "new", priority = "medium", epicId = epicB.Id });
         resp.StatusCode.Should().NotBe(HttpStatusCode.OK,
             "a member must not be able to reference another team's epic on their ticket");
         ((int)resp.StatusCode).Should().Be(400, "cross-team epic reference is rejected as epic_team_mismatch (V16)");

@@ -27,6 +27,15 @@ public static class EnumCanonical
         _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown ticket state.")
     };
 
+    public static string ToCanonical(TicketPriority priority) => priority switch
+    {
+        TicketPriority.Low => "low",
+        TicketPriority.Medium => "medium",
+        TicketPriority.High => "high",
+        TicketPriority.Urgent => "urgent",
+        _ => throw new ArgumentOutOfRangeException(nameof(priority), priority, "Unknown ticket priority.")
+    };
+
     /// <summary>Strict parse. Only exact canonical lowercase values are accepted.</summary>
     public static bool TryParseType(string? value, out TicketType type)
     {
@@ -52,6 +61,28 @@ public static class EnumCanonical
             default: state = default; return false;
         }
     }
+
+    /// <summary>Strict parse. Only exact canonical lowercase values are accepted.</summary>
+    public static bool TryParsePriority(string? value, out TicketPriority priority)
+    {
+        switch (value)
+        {
+            case "low": priority = TicketPriority.Low; return true;
+            case "medium": priority = TicketPriority.Medium; return true;
+            case "high": priority = TicketPriority.High; return true;
+            case "urgent": priority = TicketPriority.Urgent; return true;
+            default: priority = default; return false;
+        }
+    }
+
+    /// <summary>Priority dictionary in ascending severity, for UI options / filter validation (ADR-0009).</summary>
+    public static readonly TicketPriority[] PriorityValues =
+    {
+        TicketPriority.Low,
+        TicketPriority.Medium,
+        TicketPriority.High,
+        TicketPriority.Urgent
+    };
 
     /// <summary>Workflow-ordered states used to render the five board columns (FR-E6-2).</summary>
     public static readonly TicketState[] WorkflowOrder =

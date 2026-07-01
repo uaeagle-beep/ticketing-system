@@ -15,7 +15,7 @@ import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { useNavigate } from 'react-router-dom';
 import type { TicketCard as TicketCardModel } from '@/api/types';
-import { TypeBadge } from '@/components/Badges';
+import { AssigneeAvatars, DueDatePill, PriorityBadge, TypeBadge } from '@/components/Badges';
 import { stateLabel } from '@/lib/labels';
 import { relativeTime } from '@/lib/time';
 
@@ -52,7 +52,10 @@ export function TicketCard({ ticket }: { ticket: TicketCardModel }) {
       }}
     >
       <div className="ticket-card-top">
-        <TypeBadge type={ticket.type} />
+        <div className="ticket-card-badges">
+          <TypeBadge type={ticket.type} />
+          <PriorityBadge priority={ticket.priority} />
+        </div>
         <button
           type="button"
           ref={setActivatorNodeRef}
@@ -69,6 +72,14 @@ export function TicketCard({ ticket }: { ticket: TicketCardModel }) {
         </button>
       </div>
       <div className="ticket-card-title">{ticket.title}</div>
+      {ticket.dueDate || ticket.assignees.length > 0 ? (
+        <div className="ticket-card-subrow">
+          {ticket.dueDate ? (
+            <DueDatePill dueDate={ticket.dueDate} isOverdue={ticket.isOverdue} />
+          ) : null}
+          <AssigneeAvatars assignees={ticket.assignees} />
+        </div>
+      ) : null}
       <div className="ticket-card-meta">
         <span className="ticket-card-epic" title={ticket.epicTitle ?? undefined}>
           {ticket.epicTitle ?? 'No epic'}
@@ -84,9 +95,20 @@ export function TicketCardPreview({ ticket }: { ticket: TicketCardModel }) {
   return (
     <div className="ticket-card drag-overlay-card">
       <div className="ticket-card-top">
-        <TypeBadge type={ticket.type} />
+        <div className="ticket-card-badges">
+          <TypeBadge type={ticket.type} />
+          <PriorityBadge priority={ticket.priority} />
+        </div>
       </div>
       <div className="ticket-card-title">{ticket.title}</div>
+      {ticket.dueDate || ticket.assignees.length > 0 ? (
+        <div className="ticket-card-subrow">
+          {ticket.dueDate ? (
+            <DueDatePill dueDate={ticket.dueDate} isOverdue={ticket.isOverdue} />
+          ) : null}
+          <AssigneeAvatars assignees={ticket.assignees} />
+        </div>
+      ) : null}
       <div className="ticket-card-meta">
         <span className="ticket-card-epic">{ticket.epicTitle ?? 'No epic'}</span>
         <span className="nowrap">{relativeTime(ticket.modifiedAt)}</span>

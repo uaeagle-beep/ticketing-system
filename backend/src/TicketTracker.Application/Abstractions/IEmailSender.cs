@@ -8,4 +8,11 @@ namespace TicketTracker.Application.Abstractions;
 public interface IEmailSender
 {
     Task SendVerificationEmailAsync(string toEmail, string verificationLink, CancellationToken ct);
+
+    /// <summary>
+    /// Sends a password-reset link (F-01, ADR-0010). A separate method from verification because the
+    /// link path and copy differ. Like verification, a transient send failure must NOT roll back the
+    /// token issuance — the caller swallows it with a warning (never logging the token).
+    /// </summary>
+    Task SendPasswordResetEmailAsync(string toEmail, string resetLink, CancellationToken ct);
 }

@@ -18,11 +18,11 @@ public sealed class SelfSignupAndMeGapsTests : IntegrationTestBase
     // ============================================================== Self-signup: default team MISSING
 
     [Fact]
-    public async Task Self_registered_user_with_no_default_team_present_verifies_but_joins_no_team()
+    public async Task Self_registered_user_with_default_team_disabled_verifies_but_joins_no_team()
     {
-        // No "Demo Team" is seeded in this test's fresh DB, so the configured default team is absent.
-        // Per req 8 / ASR-6 the user still verifies successfully and simply ends up with no membership
-        // (a warning is logged server-side); verification must NOT fail because the team is missing.
+        // Auto-provisioning is OFF in this class (DEFAULT_SIGNUP_TEAM_NAME blank), the documented degrade
+        // path (ADR-0011 step 1). The user still verifies successfully and simply ends up with no
+        // membership (a warning is logged server-side); verification must NOT fail.
         const string email = "no-default-team@dataart.com";
 
         var signup = await Client.PostAsJsonAsync("/api/auth/signup", new { email, password = DefaultPassword });
@@ -40,44 +40,11 @@ public sealed class SelfSignupAndMeGapsTests : IntegrationTestBase
         body.User.IsAdmin.Should().BeFalse("a self-registered user is a member (ASR-6)");
         body.User.IsBlocked.Should().BeFalse();
         body.User.Teams.Should().NotBeNull();
-        body.User.Teams!.Should().BeEmpty("with no default team present the verified user joins no team (req 8)");
+        body.User.Teams!.Should().BeEmpty("with auto-provisioning disabled the verified user joins no team");
     }
 
-    [Fact]
-    public async Task Self_registered_user_joins_only_the_default_team_not_other_existing_teams()
-    {
-        // With a Demo Team AND another team present, verify must grant membership ONLY in the default
-        // team — never in unrelated teams (ASR-6: membership is granted only to the configured default).
-        var (adminToken, _, _) = await RegisterAdminAsync();
-        var admin = Authed(adminToken);
-        var demo = await ReadAsync<TeamDto>(await admin.PostAsJsonAsync("/api/teams", new { name = "Demo Team" }));
-        var other = await ReadAsync<TeamDto>(await admin.PostAsJsonAsync("/api/teams", new { name = "Other Team" }));
-
-        var (memberToken, _, _) = await RegisterMemberAsync("only-default@dataart.com");
-        var member = Authed(memberToken);
-
-        var me = await ReadAsync<UserDto>(await member.GetAsync("/api/auth/me"));
-        me.Teams!.Select(t => t.Id).Should().BeEquivalentTo(new[] { demo.Id },
-            "membership is granted only in the default team, never in unrelated teams (ASR-6)");
-        me.Teams!.Select(t => t.Id).Should().NotContain(other.Id);
-    }
-
-    [Fact]
-    public async Task Verifying_twice_does_not_duplicate_default_team_membership()
-    {
-        // Idempotence guard: the second verify path is a no-op (single-use token), so membership is not
-        // duplicated. Proven via the member's /me showing exactly one Demo Team entry after the flow.
-        var (adminToken, _, _) = await RegisterAdminAsync();
-        var admin = Authed(adminToken);
-        await admin.PostAsJsonAsync("/api/teams", new { name = "Demo Team" });
-
-        var (memberToken, _, _) = await RegisterMemberAsync("dedupe@dataart.com");
-        var member = Authed(memberToken);
-
-        var me = await ReadAsync<UserDto>(await member.GetAsync("/api/auth/me"));
-        me.Teams!.Where(t => t.Name == "Demo Team").Should().HaveCount(1,
-            "the default-team membership is granted exactly once (INV-1 unique membership)");
-    }
+    // The default-team AUTO-CREATE / auto-join positive branch (F-10, ADR-0011) lives in
+    // DefaultTeamProvisioningTests, which runs with DEFAULT_SIGNUP_TEAM_NAME = "Demo Team".
 
     // ============================================================== /me — member vs admin shape (§3.6)
 

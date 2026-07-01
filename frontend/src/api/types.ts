@@ -14,6 +14,14 @@ export const TICKET_STATES = [
 ] as const;
 export type TicketState = (typeof TICKET_STATES)[number];
 
+// Priority dictionary (F-03, ADR-0009), ascending severity. Canonical lowercase; default 'medium'.
+export const TICKET_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
+export type TicketPriority = (typeof TICKET_PRIORITIES)[number];
+
+// Board "due" filter values (F-08). A single enum param keeps mutually-exclusive states unambiguous.
+export const DUE_FILTERS = ['overdue', 'has_due_date', 'no_due_date'] as const;
+export type DueFilter = (typeof DUE_FILTERS)[number];
+
 // ---- Error envelope (API_CONTRACT §2) ----
 export type ApiErrorCode =
   | 'validation_error'
@@ -100,6 +108,13 @@ export interface Epic {
   modifiedAt: string;
 }
 
+// A lightweight assignee reference (id + display name) on tickets (F-02, API_CONTRACT §4.2).
+// displayName is computed server-side (name?.trim() || email); the SPA never recomputes it.
+export interface AssigneeRef {
+  id: string;
+  displayName: string;
+}
+
 // ---- Tickets (API_CONTRACT §6) ----
 export interface TicketDetail {
   id: string;
@@ -108,8 +123,16 @@ export interface TicketDetail {
   epicTitle: string | null;
   type: TicketType;
   state: TicketState;
+  // Priority (F-03). Always present; defaults to 'medium'.
+  priority: TicketPriority;
   title: string;
   body: string;
+  // Optional calendar-day due date "YYYY-MM-DD" (F-08); null => no due date.
+  dueDate: string | null;
+  // Backend-computed: dueDate != null && dueDate < today(UTC) && state != done (F-08).
+  isOverdue: boolean;
+  // Assignees (F-02). Empty array => unassigned.
+  assignees: AssigneeRef[];
   createdAt: string;
   modifiedAt: string;
   createdBy: string;
@@ -123,9 +146,13 @@ export interface TicketCard {
   id: string;
   type: TicketType;
   state: TicketState;
+  priority: TicketPriority;
   title: string;
   epicId: string | null;
   epicTitle: string | null;
+  dueDate: string | null;
+  isOverdue: boolean;
+  assignees: AssigneeRef[];
   modifiedAt: string;
 }
 
@@ -186,6 +213,26 @@ export interface ResendVerificationRequest {
   email: string;
 }
 
+// Self-service password reset (F-01) and profile (F-04).
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ResetPasswordRequest {
+  token: string;
+  password: string;
+}
+
+export interface UpdateProfileRequest {
+  // null/blank => clears the display name (UI shows the email).
+  name: string | null;
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
 export interface CreateTeamRequest {
   name: string;
 }
@@ -217,6 +264,12 @@ export interface CreateTicketRequest {
   body: string;
   epicId?: string | null;
   state?: TicketState;
+  // Priority (F-03): optional; server defaults to 'medium' when omitted.
+  priority?: TicketPriority;
+  // Due date (F-08): "YYYY-MM-DD" or null/omitted for no due date.
+  dueDate?: string | null;
+  // Initial assignee set (F-02): omitted => none.
+  assigneeIds?: string[];
 }
 
 export interface UpdateTicketRequest {
@@ -226,10 +279,20 @@ export interface UpdateTicketRequest {
   title: string;
   body: string;
   state: TicketState;
+  // Priority (F-03): REQUIRED in the edit body (like type/state).
+  priority: TicketPriority;
+  // Due date (F-08): "YYYY-MM-DD" or null to clear.
+  dueDate: string | null;
+  // assigneeIds omitted on the main edit; assignment goes through PUT /tickets/{id}/assignees.
 }
 
 export interface PatchTicketStateRequest {
   state: TicketState;
+}
+
+// PUT /api/tickets/{id}/assignees — authoritative full assignee set (F-02, §4.2).
+export interface SetAssigneesRequest {
+  userIds: string[];
 }
 
 export interface CreateCommentRequest {
@@ -241,6 +304,11 @@ export interface BoardFilters {
   type?: TicketType;
   epicId?: string;
   search?: string;
+  // Wave 1 filters (all AND-combined server-side).
+  priority?: TicketPriority;
+  assigneeId?: string; // filter to a specific assignee
+  assignedToMe?: boolean; // sugar for the current user; wins over assigneeId if both set
+  dueFilter?: DueFilter; // overdue | has_due_date | no_due_date
 }
 
 // ---- Admin — User Management (API_CONTRACT §8, ADR-0007) ----

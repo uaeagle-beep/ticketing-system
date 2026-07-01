@@ -83,7 +83,7 @@ public sealed class TicketServiceModifiedAtTests : IDisposable
 
         _clock.Advance(TimeSpan.FromMinutes(30));
         var updated = await svc.UpdateAsync(created.Id,
-            new UpdateTicketRequest(teamId, "feature", null, "Login fails on Safari", "Steps...", "in_progress"), default);
+            new UpdateTicketRequest(teamId, "feature", null, "Login fails on Safari", "Steps...", "in_progress", "medium"), default);
 
         updated.ModifiedAt.Should().BeAfter(created.ModifiedAt);
         updated.Type.Should().Be("feature");
@@ -101,8 +101,9 @@ public sealed class TicketServiceModifiedAtTests : IDisposable
 
         _clock.Advance(TimeSpan.FromMinutes(30));
         // Same values, but title/body padded with whitespace (normalizes equal) — must not advance.
+        // Priority is required in the edit body; re-sent at its default so the update is a true no-op.
         var result = await svc.UpdateAsync(created.Id,
-            new UpdateTicketRequest(teamId, "bug", null, "  Login fails  ", " Steps... ", "new"), default);
+            new UpdateTicketRequest(teamId, "bug", null, "  Login fails  ", " Steps... ", "new", "medium"), default);
 
         result.ModifiedAt.Should().Be(created.ModifiedAt, "a normalized no-op must not advance modified_at (V20)");
     }

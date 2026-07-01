@@ -58,7 +58,7 @@ public sealed class BoardTests : IntegrationTestBase
         // The no-op above intentionally does not bump A; explicitly move it to a different state and back conceptually.
         Factory.Clock.Advance(TimeSpan.FromMinutes(1));
         await ctx.Client.PutAsJsonAsync($"/api/tickets/{a.Id}",
-            new { teamId = ctx.TeamId, type = "bug", title = "A!", body = "B", state = "new", epicId = (Guid?)null });
+            new { teamId = ctx.TeamId, type = "bug", title = "A!", body = "B", state = "new", priority = "medium", epicId = (Guid?)null });
 
         var board = await ReadAsync<BoardDto>(await ctx.Client.GetAsync($"/api/tickets?teamId={ctx.TeamId}"));
         var titles = board.Columns.Single(c => c.State == "new").Tickets.Select(t => t.Title).ToList();

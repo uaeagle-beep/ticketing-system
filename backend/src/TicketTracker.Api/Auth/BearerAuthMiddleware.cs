@@ -24,7 +24,9 @@ public sealed class BearerAuthMiddleware
         "/api/auth/signup",
         "/api/auth/login",
         "/api/auth/verify-email",
-        "/api/auth/resend-verification"
+        "/api/auth/resend-verification",
+        "/api/auth/forgot-password",
+        "/api/auth/reset-password"
     };
 
     public BearerAuthMiddleware(RequestDelegate next, JsonSerializerOptions json)

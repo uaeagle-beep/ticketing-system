@@ -115,6 +115,9 @@ export function LoginPage() {
             </button>
           ) : null}
           <div>
+            <Link to="/forgot-password">Forgot password?</Link>
+          </div>
+          <div>
             <Link to="/signup">Create an account →</Link>
           </div>
         </div>

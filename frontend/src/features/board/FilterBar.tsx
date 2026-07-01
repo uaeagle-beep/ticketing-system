@@ -1,15 +1,23 @@
-// Board filter bar (Wireframe 1): title search, Type dropdown, Epic dropdown,
-// Clear button, and the total ticket count (post-filter, A23). Filters combine
+// Board filter bar (Wireframe 1, extended for Wave 1): title search, Type, Epic, Priority, Due, and
+// Assignee filters, a Clear button, and the total ticket count (post-filter, A23). Filters combine
 // with AND logic, applied server-side via the board query.
+//
+// Assignee filtering: "Assigned to me" (universal — uses the current user id, no member listing) plus,
+// when a candidate-user source is available (`assigneeOptions`, populated for admins from the admin
+// users list — see the contract-gap note in useTeamMembers), a by-specific-user option. When no source
+// is available (a non-admin member, since there is no member-listing endpoint), only "Assigned to me"
+// is offered. `assignedToMe` wins over `assigneeId` (documented precedence, §4.2).
 
-import type { BoardFilters, Epic, TicketType } from '@/api/types';
-import { typeOptions } from '@/lib/labels';
+import type { AssigneeRef, BoardFilters, DueFilter, Epic, TicketPriority, TicketType } from '@/api/types';
+import { dueFilterOptions, priorityOptions, typeOptions } from '@/lib/labels';
 
 interface FilterBarProps {
   filters: BoardFilters;
   epics: Epic[];
   epicsLoading: boolean;
   total: number;
+  // Candidate users for the by-user assignee filter (may be empty when no source is available).
+  assigneeOptions?: AssigneeRef[];
   onChange: (next: BoardFilters) => void;
   onClear: () => void;
 }
@@ -19,10 +27,28 @@ export function FilterBar({
   epics,
   epicsLoading,
   total,
+  assigneeOptions = [],
   onChange,
   onClear,
 }: FilterBarProps) {
-  const hasActiveFilters = Boolean(filters.type || filters.epicId || filters.search);
+  const hasActiveFilters = Boolean(
+    filters.type ||
+      filters.epicId ||
+      filters.search ||
+      filters.priority ||
+      filters.assignedToMe ||
+      filters.assigneeId ||
+      filters.dueFilter,
+  );
+
+  // The assignee <select> encodes three cases in one control: '' (all), 'me' (assignedToMe), or a
+  // specific user id.
+  const assigneeValue = filters.assignedToMe ? 'me' : (filters.assigneeId ?? '');
+  const onAssigneeChange = (value: string) => {
+    if (value === '') onChange({ ...filters, assignedToMe: undefined, assigneeId: undefined });
+    else if (value === 'me') onChange({ ...filters, assignedToMe: true, assigneeId: undefined });
+    else onChange({ ...filters, assignedToMe: undefined, assigneeId: value });
+  };
 
   return (
     <div className="filter-bar">
@@ -53,6 +79,25 @@ export function FilterBar({
 
       <select
         className="select"
+        aria-label="Filter by priority"
+        value={filters.priority ?? ''}
+        onChange={(e) =>
+          onChange({
+            ...filters,
+            priority: (e.target.value || undefined) as TicketPriority | undefined,
+          })
+        }
+      >
+        <option value="">All priorities</option>
+        {priorityOptions.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+
+      <select
+        className="select"
         aria-label="Filter by epic"
         value={filters.epicId ?? ''}
         onChange={(e) => onChange({ ...filters, epicId: e.target.value || undefined })}
@@ -62,6 +107,37 @@ export function FilterBar({
         {epics.map((epic) => (
           <option key={epic.id} value={epic.id}>
             {epic.title}
+          </option>
+        ))}
+      </select>
+
+      <select
+        className="select"
+        aria-label="Filter by assignee"
+        value={assigneeValue}
+        onChange={(e) => onAssigneeChange(e.target.value)}
+      >
+        <option value="">All assignees</option>
+        <option value="me">Assigned to me</option>
+        {assigneeOptions.map((u) => (
+          <option key={u.id} value={u.id}>
+            {u.displayName}
+          </option>
+        ))}
+      </select>
+
+      <select
+        className="select"
+        aria-label="Filter by due date"
+        value={filters.dueFilter ?? ''}
+        onChange={(e) =>
+          onChange({ ...filters, dueFilter: (e.target.value || undefined) as DueFilter | undefined })
+        }
+      >
+        <option value="">All due dates</option>
+        {dueFilterOptions.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
           </option>
         ))}
       </select>

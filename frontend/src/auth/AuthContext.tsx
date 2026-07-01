@@ -25,6 +25,8 @@ interface AuthContextValue {
   user: AuthUser | null;
   /** Persist a successful login response and enter the app. */
   signIn: (response: LoginResponse) => void;
+  /** Replace the cached identity (e.g. after a self-service profile edit). */
+  updateUser: (user: AuthUser) => void;
   /** Invalidate the session server-side (best effort) and clear local state. */
   signOut: () => Promise<void>;
 }
@@ -97,6 +99,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const updateUser = useCallback((next: AuthUser) => {
+    setUser(next);
+  }, []);
+
   const signOut = useCallback(async () => {
     try {
       await authApi.logout();
@@ -111,8 +117,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [queryClient]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, signIn, signOut }),
-    [status, user, signIn, signOut],
+    () => ({ status, user, signIn, updateUser, signOut }),
+    [status, user, signIn, updateUser, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

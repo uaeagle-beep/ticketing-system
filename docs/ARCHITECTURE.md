@@ -152,13 +152,37 @@ Unique index `ux_user_teams_user_team (user_id, team_id)` — a user cannot be i
 | `epic_id` | uuid | FK → Epic.id, **ON DELETE RESTRICT**, null, indexed | null OR epic of the SAME team (V16); see §6.3 |
 | `type` | varchar(16) | not null, CHECK ∈ {bug,feature,fix} | canonical lowercase text (V13) |
 | `state` | varchar(32) | not null, CHECK ∈ {new,ready_for_implementation,in_progress,ready_for_acceptance,done} | canonical text; default `new` (A15, V14) |
+| `priority` | varchar(16) | not null, CHECK ∈ {low,medium,high,urgent} | canonical lowercase text; app default `medium`; existing rows backfilled to `medium` (F-03, ADR-0009) |
+| `due_date` | date | null | optional calendar day (UTC, no time-of-day); `isOverdue` computed at read time (F-08, ADR-0009) |
 | `title` | varchar(512) | not null | non-empty after trim (V17) |
 | `body` | text | not null | non-empty after trim (V17); sane max length (A17) |
 | `created_at` | timestamptz | not null | server-set at creation (V18) |
-| `modified_at` | timestamptz | not null | advances ONLY on real field/state change (V19, V20); NOT on comment add (V21) |
+| `modified_at` | timestamptz | not null | advances ONLY on real field/state change (V19, V20); NOT on comment add (V21) NOR on assignee change (F-02) |
 | `created_by` | uuid | FK → User.id, **ON DELETE RESTRICT**, not null, indexed | server-set, immutable (V18, A16) |
 
 Composite index `(team_id, state, modified_at DESC)` supports the board query (per-team, grouped by state, ordered by modified desc — A22).
+
+#### TicketAssignee  *(assignment join — F-02, ADR-0009)*
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | uuid | PK | |
+| `ticket_id` | uuid | FK → Ticket.id, **ON DELETE CASCADE**, not null, indexed | an assignment is not standalone content (mirrors Ticket→Comment) |
+| `user_id` | uuid | FK → User.id, **ON DELETE RESTRICT**, not null, indexed | protects user integrity (mirrors created_by/author_id) |
+| `created_at` | timestamptz | not null | assignment time |
+
+Unique index `(ticket_id, user_id)` — no user assigned to the same ticket twice (INV-W1). Eligible assignee = member of the ticket's team ∪ any admin.
+
+#### PasswordResetToken  *(auth tokens — F-01, ADR-0010)*
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | uuid | PK | |
+| `user_id` | uuid | FK → User.id, **ON DELETE CASCADE**, not null, indexed | auth artifact owned by the user |
+| `token_hash` | char(64) | not null, indexed | SHA-256 hex; raw token only in the emailed link |
+| `created_at` | timestamptz | not null | |
+| `expires_at` | timestamptz | not null | `created_at + PASSWORD_RESET_TTL_HOURS` (default 1); expiry boundary `now >= expires_at` ⇒ expired (A31) |
+| `consumed_at` | timestamptz | null | single-use; set atomically on successful reset |
+
+Structural twin of `email_verification_tokens` in its own table (distinct TTL, single-use, no cross-flow acceptance).
 
 #### Comment
 | Column | Type | Constraints | Notes |
@@ -177,6 +201,7 @@ Both enums are stored as **canonical lowercase text** with a DB `CHECK` constrai
 
 - `TicketType`: `bug` | `feature` | `fix`
 - `TicketState`: `new` | `ready_for_implementation` | `in_progress` | `ready_for_acceptance` | `done`
+- `TicketPriority`: `low` | `medium` | `high` | `urgent` (default `medium`, F-03/ADR-0009)
 
 ### 4.3 Referential integrity & cascade policy (V9, V12, V22, V26, A28)
 
@@ -188,8 +213,9 @@ Enforced at **both** the DB (FK behaviors below) **and** the service layer, so d
 | Team → Ticket | **RESTRICT** | Cannot delete a team that has tickets → 409 (V9). |
 | Team → Epic | **RESTRICT** | Cannot delete a team that has epics → 409 (V9). |
 | Epic → Ticket | **RESTRICT** | Cannot delete an epic referenced by tickets → 409 (V12). |
-| User → Ticket (created_by) / Comment (author) | **RESTRICT** | No user-delete in scope; protects authorship integrity. |
-| User → EmailVerificationToken / Session | **CASCADE** | Auth artifacts are owned by the user. |
+| User → Ticket (created_by) / Comment (author) / TicketAssignee (user_id) | **RESTRICT** | No user-delete in scope; protects authorship/assignment integrity. |
+| Ticket → TicketAssignee | **CASCADE** | Deleting a ticket drops its assignments (not standalone content — F-02). |
+| User → EmailVerificationToken / PasswordResetToken / Session | **CASCADE** | Auth artifacts are owned by the user. |
 | User → UserTeam / Team → UserTeam | **CASCADE** | Membership is an association, not authored content; dropping a user or team drops its membership rows (ADR-0007). |
 
 The service performs an explicit existence check before delete and returns the proper `409` envelope (with `code`) rather than surfacing a raw FK violation — but the FK RESTRICT is the backstop that guarantees correctness even on a direct API call (EC7).
@@ -281,7 +307,11 @@ The complete contract — every request/response body, example, and status code 
 | POST | `/api/auth/logout` | auth | Invalidate the current session token |
 | POST | `/api/auth/verify-email` | no | Consume token, mark verified, grant default-team membership (req 8) |
 | POST | `/api/auth/resend-verification` | no | Issue new token (non-committal; blocked accounts get none) |
+| POST | `/api/auth/forgot-password` | no | Request a reset link (non-committal; F-01) |
+| POST | `/api/auth/reset-password` | no | Consume single-use token, set password, purge all sessions (F-01) |
 | GET | `/api/auth/me` | auth | Current user incl. `isAdmin`, `isBlocked`, `teams[]` for SPA bootstrap |
+| PUT | `/api/me/profile` | auth (self) | Set/clear own display name (no id in path; F-04) |
+| POST | `/api/me/password` | auth (self) | Change own password (current-password re-auth; keep current session, purge others; F-04) |
 | GET | `/api/teams` | auth | List teams — admin: all; member: their teams only |
 | POST | `/api/teams` | **A** | Create team |
 | PUT | `/api/teams/{id}` | **A** | Rename team |
@@ -291,12 +321,13 @@ The complete contract — every request/response body, example, and status code 
 | POST | `/api/epics` | **M(team)** | Create epic |
 | PUT | `/api/epics/{id}` | **M(team of epic)** | Edit title/description (team immutable) |
 | DELETE | `/api/epics/{id}` | **M(team of epic)** | Delete epic (409 if referenced) |
-| GET | `/api/tickets?teamId=&type=&epicId=&search=` | **M(team)** | Board for a team |
+| GET | `/api/tickets?teamId=&type=&epicId=&search=&priority=&assigneeId=&assignedToMe=&dueFilter=` | **M(team)** | Board for a team (Wave 1 adds priority/assignee/due filters) |
 | GET | `/api/tickets/{id}` | **M(team of ticket)** | Ticket detail (IDOR guard) |
-| POST | `/api/tickets` | **M(team)** | Create ticket |
-| PUT | `/api/tickets/{id}` | **M(team of ticket)** | Edit (checks current AND target team) |
+| POST | `/api/tickets` | **M(team)** | Create ticket (accepts priority/dueDate/assigneeIds) |
+| PUT | `/api/tickets/{id}` | **M(team of ticket)** | Edit (checks current AND target team; priority required in body) |
 | PATCH | `/api/tickets/{id}/state` | **M(team of ticket)** | Drag-and-drop state change |
-| DELETE | `/api/tickets/{id}` | **M(team of ticket)** | Delete ticket (cascade comments) |
+| PUT | `/api/tickets/{id}/assignees` | **M(team of ticket)** | Replace the full assignee set (F-02) |
+| DELETE | `/api/tickets/{id}` | **M(team of ticket)** | Delete ticket (cascade comments + assignees) |
 | GET | `/api/tickets/{id}/comments` | **M(team of ticket)** | List comments oldest-first |
 | POST | `/api/tickets/{id}/comments` | **M(team of ticket)** | Add comment (no modified_at bump) |
 | GET | `/api/admin/users` | **A** | List all users (status, role, membership) |
@@ -388,7 +419,7 @@ Enforced server-side on **every** ticket create/update (not just team changes):
 - **Server state:** TanStack Query for all reads/mutations; query keys per resource (`['teams']`, `['epics', teamId]`, `['tickets', teamId, filters]`, `['ticket', id]`, `['comments', ticketId]`). Drag-drop uses optimistic updates with rollback (§6.5).
 - **Auth:** an `apiClient` attaches `Authorization: Bearer <token>`; the token lives in memory + `localStorage` mirror for refresh continuity **[ADR-0001]** (not the system of record — source §9 honored). A 401 response clears the token and routes to login. `GET /api/auth/me` bootstraps session on load.
 - **Drag&drop:** @dnd-kit; 5 droppable columns keyed by state; card drop → `PATCH state`.
-- **Routing/screens (source §10, wireframes):** `/signup`, `/verify-email` (result + resend), `/login`, `/board` (team selector, filters, 5 columns), `/tickets/:id` (details/edit + comments), `/teams` (management), `/epics` (management). Public routes: signup, login, verify-email, resend. All others require a token.
+- **Routing/screens (source §10, wireframes; Wave 1 additions):** `/signup`, `/verify-email` (result + resend), `/login`, `/forgot-password` (request reset), `/reset-password` (consume token — F-01), `/board` (team selector, filters incl. priority/assignee/due, 5 columns), `/tickets/:id` (details/edit + comments; priority/due-date/assignees), `/teams` (management), `/epics` (management), `/account` (self name + password change — F-04). Public routes: signup, login, verify-email, forgot-password, reset-password. All others require a token.
 - **State labels:** API canonical lowercase → UI display labels with spaces; column headers and type badges UPPERCASE (A2). Relative modified time derived from UTC `modified_at` (A26); exact UTC shown on the details meta line (Wireframe 3).
 - **UX states:** loading / empty / success / error for every async surface (NFR-USE-1), incl. the three distinct empty states (EC9) and clear validation messages for 400/401/403/404/409 (NFR-USE-3).
 
@@ -407,6 +438,7 @@ No secrets in git. `.env.example` (committed, with safe defaults) documents ever
 | `AUTH_TOKEN_SECRET` | api | `(generate)` | HMAC pepper actually applied to opaque session/verification token hashing (HMAC-SHA256). Required in Production (fail-fast if unset); a built-in dev key is used outside Production. |
 | `SESSION_TTL_HOURS` | api | `72` | Session token lifetime **[ADR-0001]** |
 | `TOKEN_TTL_HOURS` | api | `24` | Verification token lifetime (source §3) |
+| `PASSWORD_RESET_TTL_HOURS` | api | `1` | Password-reset token lifetime (F-01, ADR-0010) — single-use, deliberately short |
 | `SMTP_HOST` | api | `relay1.dataart.com` | SMTP relay (must be supported, §3) |
 | `SMTP_PORT` | api | `587` | SMTP port |
 | `SMTP_USERNAME` | api | `` (empty) | SMTP auth user (relay may be open) |
@@ -414,7 +446,7 @@ No secrets in git. `.env.example` (committed, with safe defaults) documents ever
 | `SMTP_USE_STARTTLS` | api | `true` | TLS upgrade |
 | `EMAIL_FROM` | api | `no-reply@ticketing.local` | From header |
 | `FRONTEND_URL` | api | `http://localhost:8080` | Base for verification links (A30, must be env-configurable so QA links resolve) |
-| `DEFAULT_SIGNUP_TEAM_NAME` | api | `Demo Team` | Team a self-registered user joins after verifying their email (req 8, ADR-0007/0008). Matched by normalized name; if absent, no membership + a warning log. The migration never auto-creates it. |
+| `DEFAULT_SIGNUP_TEAM_NAME` | api | `Demo Team` | Team a self-registered user joins after verifying their email (req 8, ADR-0007/0008/0011). Matched by normalized name; **auto-created if missing** at first self-signup verification, race-safely (F-10, ADR-0011 — supersedes the ADR-0008 warn-and-skip clause). The migration still auto-creates nothing (runtime-only). Blank ⇒ step skipped with a warning. |
 | `RUN_MIGRATIONS_ON_STARTUP` | api | `true` | Auto-apply EF migrations **[ADR-0003]** |
 | `WEB_PORT` | compose | `8080` | Host port for nginx |
 

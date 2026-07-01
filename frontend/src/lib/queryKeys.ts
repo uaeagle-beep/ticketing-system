@@ -13,7 +13,16 @@ export const queryKeys = {
   // Board key includes the filters so each filter combination is cached
   // independently and refetches when filters change.
   board: (teamId: string, filters: BoardFilters) =>
-    ['board', teamId, filters.type ?? null, filters.epicId ?? null, filters.search ?? ''] as const,
+    [
+      'board',
+      teamId,
+      filters.type ?? null,
+      filters.epicId ?? null,
+      filters.search ?? '',
+      filters.priority ?? null,
+      filters.assignedToMe ? 'me' : (filters.assigneeId ?? null),
+      filters.dueFilter ?? null,
+    ] as const,
 
   ticket: (id: string) => ['ticket', id] as const,
 

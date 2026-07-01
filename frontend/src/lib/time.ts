@@ -27,6 +27,19 @@ export function relativeTime(iso: string, now: Date = new Date()): string {
   });
 }
 
+// Format a calendar-day due date ("YYYY-MM-DD", no time-of-day, F-08) for display,
+// e.g. "Jul 5, 2026". Parsed as a plain date (no timezone shift). Invalid input is
+// returned unchanged so the raw value is never hidden.
+export function formatDueDate(dueDate: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dueDate);
+  if (!m) return dueDate;
+  const [, y, mo, d] = m;
+  const date = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
+  if (Number.isNaN(date.getTime())) return dueDate;
+  const month = date.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+  return `${month} ${date.getUTCDate()}, ${y}`;
+}
+
 // Absolute UTC timestamp for the ticket-details meta line (Wireframe 3),
 // e.g. "Jun 22, 09:15 UTC".
 export function formatUtc(iso: string): string {

@@ -78,6 +78,18 @@ export function AppLayout() {
                 type="button"
                 className="btn btn-ghost"
                 style={{ width: '100%', justifyContent: 'flex-start' }}
+                onClick={() => {
+                  setMenuOpen(false);
+                  navigate('/account');
+                }}
+                role="menuitem"
+              >
+                Account
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ width: '100%', justifyContent: 'flex-start' }}
                 onClick={handleLogout}
                 role="menuitem"
               >

@@ -10,6 +10,20 @@ public sealed record VerifyEmailRequest(string? Token);
 
 public sealed record ResendVerificationRequest(string? Email);
 
+// ----- Self-service account requests (Wave 1: F-01 reset, F-04 profile) -----
+
+/// <summary>POST /api/auth/forgot-password (F-01, public, non-enumerating).</summary>
+public sealed record ForgotPasswordRequest(string? Email);
+
+/// <summary>POST /api/auth/reset-password (F-01, public). Consumes a token + sets a new password.</summary>
+public sealed record ResetPasswordRequest(string? Token, string? Password);
+
+/// <summary>PUT /api/me/profile (F-04, self). Set or clear the display name (null/blank ⇒ clear).</summary>
+public sealed record UpdateProfileRequest(string? Name);
+
+/// <summary>POST /api/me/password (F-04, self). Current-password re-auth + new password.</summary>
+public sealed record ChangePasswordRequest(string? CurrentPassword, string? NewPassword);
+
 // ----- Auth responses -----
 
 public sealed record MessageResponse(string Message);

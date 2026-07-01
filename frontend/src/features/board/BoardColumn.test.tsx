@@ -10,9 +10,13 @@ const card: TicketCard = {
   id: 'tk1042-login-fails',
   type: 'bug',
   state: 'new',
+  priority: 'medium',
   title: 'Login fails',
   epicId: null,
   epicTitle: null,
+  dueDate: null,
+  isOverdue: false,
+  assignees: [],
   modifiedAt: '2026-06-23T12:40:00Z',
 };
 

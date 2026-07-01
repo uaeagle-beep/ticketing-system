@@ -304,7 +304,7 @@ public sealed class WipLimitsCoverageTests : IntegrationTestBase
 
         var resp = await ctx.Client.PutAsJsonAsync($"/api/tickets/{mover.Id}",
             new { teamId = ctx.TeamId, type = "feature", title = "Mover renamed", body = "B2",
-                  state = "in_progress", epicId = (Guid?)null });
+                  state = "in_progress", priority = "medium", epicId = (Guid?)null });
 
         resp.StatusCode.Should().Be(HttpStatusCode.Conflict);
         var err = await ReadErrorAsync(resp);
@@ -338,7 +338,7 @@ public sealed class WipLimitsCoverageTests : IntegrationTestBase
         // Move it to the TARGET team while keeping state=in_progress → arrives in the target's FULL column.
         var resp = await client.PutAsJsonAsync($"/api/tickets/{mover.Id}",
             new { teamId = target.Id, type = "bug", title = "Mover", body = "B",
-                  state = "in_progress", epicId = (Guid?)null });
+                  state = "in_progress", priority = "medium", epicId = (Guid?)null });
 
         resp.StatusCode.Should().Be(HttpStatusCode.Conflict,
             "the WIP cap is evaluated for the TARGET (team, state), not the source");
@@ -368,7 +368,7 @@ public sealed class WipLimitsCoverageTests : IntegrationTestBase
 
         var resp = await client.PutAsJsonAsync($"/api/tickets/{mover.Id}",
             new { teamId = target.Id, type = "bug", title = "Mover", body = "B",
-                  state = "in_progress", epicId = (Guid?)null });
+                  state = "in_progress", priority = "medium", epicId = (Guid?)null });
 
         resp.StatusCode.Should().Be(HttpStatusCode.OK, "the target column had room (1 of 2)");
         var reloaded = await ReadAsync<TicketDto>(await client.GetAsync($"/api/tickets/{mover.Id}"));

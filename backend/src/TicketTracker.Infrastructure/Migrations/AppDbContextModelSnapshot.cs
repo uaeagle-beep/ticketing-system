@@ -122,6 +122,43 @@ namespace TicketTracker.Infrastructure.Migrations
                     b.ToTable("epics", (string)null);
                 });
 
+            modelBuilder.Entity("TicketTracker.Domain.Entities.PasswordResetToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ConsumedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("consumed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("token_hash")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("password_reset_tokens", (string)null);
+                });
+
             modelBuilder.Entity("TicketTracker.Domain.Entities.Session", b =>
                 {
                     b.Property<Guid>("Id")
@@ -205,6 +242,10 @@ namespace TicketTracker.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<DateOnly?>("DueDate")
+                        .HasColumnType("date")
+                        .HasColumnName("due_date");
+
                     b.Property<Guid?>("EpicId")
                         .HasColumnType("uuid")
                         .HasColumnName("epic_id");
@@ -212,6 +253,12 @@ namespace TicketTracker.Infrastructure.Migrations
                     b.Property<DateTime>("ModifiedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("modified_at");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("priority");
 
                     b.Property<string>("State")
                         .IsRequired()
@@ -245,10 +292,40 @@ namespace TicketTracker.Infrastructure.Migrations
 
                     b.ToTable("tickets", null, t =>
                         {
+                            t.HasCheckConstraint("ck_tickets_priority", "priority IN ('low','medium','high','urgent')");
+
                             t.HasCheckConstraint("ck_tickets_state", "state IN ('new','ready_for_implementation','in_progress','ready_for_acceptance','done')");
 
                             t.HasCheckConstraint("ck_tickets_type", "type IN ('bug','feature','fix')");
                         });
+                });
+
+            modelBuilder.Entity("TicketTracker.Domain.Entities.TicketAssignee", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ticket_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("TicketId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_ticket_assignees_ticket_user");
+
+                    b.ToTable("ticket_assignees", (string)null);
                 });
 
             modelBuilder.Entity("TicketTracker.Domain.Entities.User", b =>
@@ -407,6 +484,17 @@ namespace TicketTracker.Infrastructure.Migrations
                     b.Navigation("Team");
                 });
 
+            modelBuilder.Entity("TicketTracker.Domain.Entities.PasswordResetToken", b =>
+                {
+                    b.HasOne("TicketTracker.Domain.Entities.User", "User")
+                        .WithMany("PasswordResetTokens")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("TicketTracker.Domain.Entities.Session", b =>
                 {
                     b.HasOne("TicketTracker.Domain.Entities.User", "User")
@@ -442,6 +530,25 @@ namespace TicketTracker.Infrastructure.Migrations
                     b.Navigation("Epic");
 
                     b.Navigation("Team");
+                });
+
+            modelBuilder.Entity("TicketTracker.Domain.Entities.TicketAssignee", b =>
+                {
+                    b.HasOne("TicketTracker.Domain.Entities.Ticket", "Ticket")
+                        .WithMany("Assignees")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TicketTracker.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Ticket");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("TicketTracker.Domain.Entities.UserTeam", b =>
@@ -492,12 +599,16 @@ namespace TicketTracker.Infrastructure.Migrations
 
             modelBuilder.Entity("TicketTracker.Domain.Entities.Ticket", b =>
                 {
+                    b.Navigation("Assignees");
+
                     b.Navigation("Comments");
                 });
 
             modelBuilder.Entity("TicketTracker.Domain.Entities.User", b =>
                 {
                     b.Navigation("Memberships");
+
+                    b.Navigation("PasswordResetTokens");
 
                     b.Navigation("Sessions");
 

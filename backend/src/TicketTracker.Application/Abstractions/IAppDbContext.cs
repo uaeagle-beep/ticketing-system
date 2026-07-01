@@ -14,6 +14,7 @@ public interface IAppDbContext
 {
     DbSet<User> Users { get; }
     DbSet<EmailVerificationToken> EmailVerificationTokens { get; }
+    DbSet<PasswordResetToken> PasswordResetTokens { get; }
     DbSet<Session> Sessions { get; }
     DbSet<Team> Teams { get; }
     DbSet<Epic> Epics { get; }
@@ -21,6 +22,7 @@ public interface IAppDbContext
     DbSet<Comment> Comments { get; }
     DbSet<WipLimit> WipLimits { get; }
     DbSet<UserTeam> UserTeams { get; }
+    DbSet<TicketAssignee> TicketAssignees { get; }
 
     /// <summary>Access to the underlying provider for transactions / connectivity checks.</summary>
     DatabaseFacade Database { get; }

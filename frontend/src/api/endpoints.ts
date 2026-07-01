@@ -7,6 +7,7 @@ import type {
   AuthUser,
   Board,
   BoardFilters,
+  ChangePasswordRequest,
   Comment,
   CreateCommentRequest,
   CreateEpicRequest,
@@ -15,13 +16,16 @@ import type {
   CreateUserRequest,
   CreateUserResponse,
   Epic,
+  ForgotPasswordRequest,
   LoginRequest,
   LoginResponse,
   MessageResponse,
   PatchTicketStateRequest,
   RenameTeamRequest,
   ResendVerificationRequest,
+  ResetPasswordRequest,
   ResetPasswordResponse,
+  SetAssigneesRequest,
   SetNameRequest,
   SetRoleRequest,
   SetTeamsRequest,
@@ -30,6 +34,7 @@ import type {
   TicketDetail,
   TicketStatePatchResponse,
   UpdateEpicRequest,
+  UpdateProfileRequest,
   UpdateTicketRequest,
   UpdateWipLimitsRequest,
   VerifyEmailRequest,
@@ -54,8 +59,25 @@ export const authApi = {
   resendVerification: (body: ResendVerificationRequest) =>
     http.post<MessageResponse>('/auth/resend-verification', body),
 
+  // POST /api/auth/forgot-password -> 202 { message } (public, non-enumerating, F-01)
+  forgotPassword: (body: ForgotPasswordRequest) =>
+    http.post<MessageResponse>('/auth/forgot-password', body),
+
+  // POST /api/auth/reset-password -> 200 { message } (public, single-use token, F-01)
+  resetPassword: (body: ResetPasswordRequest) =>
+    http.post<MessageResponse>('/auth/reset-password', body),
+
   // GET /api/auth/me -> 200 AuthUser
   me: (signal?: AbortSignal) => http.get<AuthUser>('/auth/me', undefined, signal),
+};
+
+// ---- Self-service account (§4.5, F-04) ----
+export const meApi = {
+  // PUT /api/me/profile -> 200 AuthUser (updated identity)
+  updateProfile: (body: UpdateProfileRequest) => http.put<AuthUser>('/me/profile', body),
+
+  // POST /api/me/password -> 204 (current session kept; other sessions purged)
+  changePassword: (body: ChangePasswordRequest) => http.post<void>('/me/password', body),
 };
 
 // ---- Teams (§4) ----
@@ -95,7 +117,7 @@ export const epicsApi = {
 
 // ---- Tickets (§6) ----
 export const ticketsApi = {
-  // GET /api/tickets?teamId=&type=&epicId=&search= -> 200 Board
+  // GET /api/tickets?teamId=&type=&epicId=&search=&priority=&assigneeId=&assignedToMe=&dueFilter= -> 200 Board
   board: (teamId: string, filters: BoardFilters, signal?: AbortSignal) =>
     http.get<Board>(
       '/tickets',
@@ -104,6 +126,11 @@ export const ticketsApi = {
         type: filters.type,
         epicId: filters.epicId,
         search: filters.search,
+        priority: filters.priority,
+        // assignedToMe wins over assigneeId (documented precedence, §4.2); omit the redundant id.
+        assignedToMe: filters.assignedToMe ? true : undefined,
+        assigneeId: filters.assignedToMe ? undefined : filters.assigneeId,
+        dueFilter: filters.dueFilter,
       },
       signal,
     ),
@@ -122,6 +149,10 @@ export const ticketsApi = {
   // PATCH /api/tickets/{id}/state -> 200 (state + modifiedAt at minimum)
   patchState: (id: string, body: PatchTicketStateRequest) =>
     http.patch<TicketStatePatchResponse>(`/tickets/${id}/state`, body),
+
+  // PUT /api/tickets/{id}/assignees -> 200 TicketDetail (full-set replace, F-02)
+  setAssignees: (id: string, body: SetAssigneesRequest) =>
+    http.put<TicketDetail>(`/tickets/${id}/assignees`, body),
 
   // DELETE /api/tickets/{id} -> 204 (cascades comments)
   remove: (id: string) => http.delete<void>(`/tickets/${id}`),

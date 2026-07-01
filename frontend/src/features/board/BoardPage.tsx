@@ -28,6 +28,7 @@ import { TICKET_STATES } from '@/api/types';
 import { stateLabel } from '@/lib/labels';
 import { useTeams } from '@/features/teams/useTeams';
 import { useEpics } from '@/features/epics/useEpics';
+import { useTeamMembers } from '@/features/tickets/useTeamMembers';
 import { useBoardQuery, useMoveTicketMutation, emptyBoard, normalizeBoard } from './useBoard';
 import { BoardColumn } from './BoardColumn';
 import { FilterBar } from './FilterBar';
@@ -102,6 +103,10 @@ export function BoardPage() {
   const epicsQuery = useEpics(selectedTeamId);
   const epics = epicsQuery.data ?? [];
 
+  // Candidate assignees for the by-user filter (team members ∪ admins). Empty for non-admins
+  // (no member-listing endpoint — see useTeamMembers's contract-gap note); "Assigned to me" still works.
+  const { candidates: assigneeOptions } = useTeamMembers(selectedTeamId);
+
   const boardQuery = useBoardQuery(selectedTeamId, filters);
   const moveMutation = useMoveTicketMutation(selectedTeamId);
 
@@ -123,7 +128,15 @@ export function BoardPage() {
       ? emptyBoard(selectedTeamId)
       : null;
 
-  const hasActiveFilters = Boolean(filters.type || filters.epicId || filters.search);
+  const hasActiveFilters = Boolean(
+    filters.type ||
+      filters.epicId ||
+      filters.search ||
+      filters.priority ||
+      filters.assignedToMe ||
+      filters.assigneeId ||
+      filters.dueFilter,
+  );
 
   const handleTeamChange = (teamId: string) => {
     setFilters({}); // Filters are team-scoped (epics differ per team); reset on switch.
@@ -255,6 +268,7 @@ export function BoardPage() {
         epics={epics}
         epicsLoading={epicsQuery.isLoading}
         total={board?.total ?? 0}
+        assigneeOptions={assigneeOptions}
         onChange={setFilters}
         onClear={() => setFilters({})}
       />

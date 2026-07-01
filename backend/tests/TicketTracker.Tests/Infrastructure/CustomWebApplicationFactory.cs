@@ -39,12 +39,22 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// <summary>The controllable clock singleton — advance it to test TTL/modified_at semantics.</summary>
     public TestClock Clock { get; } = new();
 
+    /// <summary>
+    /// The configured default signup team name (F-10). Defaults to BLANK so auto-provisioning is OFF for
+    /// the general test population (matching the pre-Wave-1 baseline — a fresh DB has no teams until one
+    /// is created). The default-team feature tests set this to "Demo Team" to exercise the auto-create /
+    /// auto-join branch. Must be assigned before the first CreateClient() (which builds the host).
+    /// </summary>
+    public string DefaultSignupTeamName { get; init; } = string.Empty;
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Disable the migrate-on-startup path (DatabaseInitializer honors this flag, see ADR-0003).
         builder.UseSetting("RUN_MIGRATIONS_ON_STARTUP", "false");
         // Keep the verification-link base URL deterministic for token-extraction assertions.
         builder.UseSetting("FRONTEND_URL", "http://localhost:8080");
+        // Auto-provisioning (F-10) is opt-in for tests: blank ⇒ verify grants no default team.
+        builder.UseSetting("DEFAULT_SIGNUP_TEAM_NAME", DefaultSignupTeamName);
 
         builder.ConfigureServices(services =>
         {

@@ -53,6 +53,22 @@ public sealed class AuthController : ControllerBase
         return Accepted(value: result);
     }
 
+    // ----- Self-service password reset (public, non-enumerating, F-01) -----
+
+    [HttpPost("forgot-password")]
+    public async Task<ActionResult<MessageResponse>> ForgotPassword([FromBody] ForgotPasswordRequest request, CancellationToken ct)
+    {
+        var result = await _auth.RequestPasswordResetAsync(request ?? new ForgotPasswordRequest(null), ct);
+        return Accepted(value: result);
+    }
+
+    [HttpPost("reset-password")]
+    public async Task<ActionResult<MessageResponse>> ResetPassword([FromBody] ResetPasswordRequest request, CancellationToken ct)
+    {
+        var result = await _auth.ResetPasswordAsync(request ?? new ResetPasswordRequest(null, null), ct);
+        return Ok(result);
+    }
+
     [HttpGet("me")]
     public async Task<ActionResult<UserDto>> Me([FromServices] CurrentUserAccessor currentUser, CancellationToken ct)
     {

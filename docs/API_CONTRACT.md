@@ -14,7 +14,7 @@
 - **Scheme:** opaque bearer token (DB-backed session) — **[ADR-0001]**.
 - **Header:** `Authorization: Bearer <token>` on every authenticated endpoint.
 - **Tokens are NEVER placed in URLs.** The only token allowed in a URL is the single-use email-verification token, and only in the emailed link (source §9, **[ADR-0006]**).
-- **Public (no auth):** `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/verify-email`, `POST /api/auth/resend-verification`, `GET /health/live`, `GET /health/ready`, and static frontend assets.
+- **Public (no auth):** `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/verify-email`, `POST /api/auth/resend-verification`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`, `GET /health/live`, `GET /health/ready`, and static frontend assets.
 - **Authenticated (token required):** everything else, including `GET /api/auth/me`. Missing/invalid/expired/logged-out token → **401**.
 - **Verified required:** authenticated endpoints additionally require `email_verified=true`. An authenticated-but-unverified state is not reachable because login does not issue a session to unverified accounts (it returns 403 first). A token whose user somehow became unverified → **403 account_not_verified**.
 - **Blocked users (ADR-0007):** a blocked account cannot authenticate. Login returns **401 account_blocked**; any surviving session token resolves to **401 unauthorized** (blocked sessions are purged on block). "Blocked == not authenticated" is uniform across login and every protected request.
@@ -134,7 +134,7 @@ Consumes a single-use verification token. The token arrives via the emailed link
 ```json
 { "message": "Email verified — your account is ready to use." }
 ```
-**Side effect (ADR-0007/0008):** on success, in the **same transaction**, the user is granted membership in the configurable default team (`DEFAULT_SIGNUP_TEAM_NAME`, default `Demo Team`), matched case-insensitively by name. If no such team exists, the user gets no membership and a warning is logged (the deployment can assign teams later via the admin zone). Admin-created users are pre-verified and never traverse this path.
+**Side effect (ADR-0007/0008/0011):** on success, in the **same transaction**, the user is granted membership in the configurable default team (`DEFAULT_SIGNUP_TEAM_NAME`, default `Demo Team`), matched case-insensitively by name. As of Wave 1 (F-10, ADR-0011) that team is **auto-created if it does not exist** (race-safely), so a self-registered user reliably lands on a usable board with no admin pre-setup. The migration still auto-creates nothing (a fresh DB is schema-only; creation is lazy runtime logic). If `DEFAULT_SIGNUP_TEAM_NAME` is **blank**, the step is skipped with a warning (the user gets no membership). Admin-created users are pre-verified and never traverse this path.
 
 **Errors:** `400 invalid_or_expired_token` — token unknown, already consumed (single-use), or expired (`now >= expires_at`, A31). The SPA shows the error state with a **resend** action.
 
@@ -169,6 +169,75 @@ SPA bootstrap: returns the current user for the presented token.
 - `name` is the optional display name (`null` when unset); the SPA shows it in the header (falling back to the email). Email remains the account key.
 
 **Errors:** `401 unauthorized` (incl. a token whose user became blocked).
+
+### 3.7 `POST /api/auth/forgot-password` — public (F-01)
+
+Requests a password-reset link. **Non-committal / non-enumerating**: always returns the same `202`, regardless of whether the email is unknown, unverified, verified, or blocked.
+
+**Request**
+```json
+{ "email": "alex@dataart.com" }
+```
+
+**202 Accepted**
+```json
+{ "message": "If an account exists for that address, a password reset link has been sent." }
+```
+- A reset token is issued (and emailed) **only** for a user that exists AND is `emailVerified` AND `!isBlocked`. For a blocked or unverified account it is a **silent no-op** (no token, no email; the correct recovery path for an unverified account is `resend-verification`). Prior unused reset tokens are invalidated on each new request (at most one live reset token per account). Token = SHA-256-hashed at rest; the raw token appears only in the emailed link `${FRONTEND_URL}/reset-password?token=<token>`. TTL = `PASSWORD_RESET_TTL_HOURS` (default 1h). Light rate-limiting recommended (optional).
+
+### 3.8 `POST /api/auth/reset-password` — public (F-01)
+
+Consumes a single-use reset token and sets a new password.
+
+**Request**
+```json
+{ "token": "raw-base64url-token-from-email", "password": "new correct horse" }
+```
+- `password`: **≥ 8** and **≤ 1024** chars (reuses the signup policy).
+
+**200 OK**
+```json
+{ "message": "Your password has been reset. Please log in with your new password." }
+```
+- On success: the password hash is replaced (Argon2id), the token is consumed (single-use, atomic), and **all** of the user's sessions are purged (force re-login everywhere).
+
+**Errors:** `400 validation_error` keyed `password` (too short/long); `400 invalid_or_expired_token` — token unknown, already consumed, expired (`now >= expires_at`), or the owning user is now blocked (defence-in-depth). No 401/403/404 — the endpoint is public and non-enumerating (the token is the secret).
+
+---
+
+## 3a. Me — self-service account (authenticated, self-only)
+
+> **Authorization (ADR-0010):** both endpoints are **Self** — there is **no user id in the path**; the target is always the authenticated principal (`RequireUserId()`), so a user can never address another account (strongest anti-IDOR posture). These live under `/api/me/*` (neither public nor `/api/admin/*`), so a valid, verified, non-blocked session is required by the bearer middleware.
+
+### 3a.1 `PUT /api/me/profile` — self (F-04)
+
+Sets or clears the caller's own display name.
+
+**Request**
+```json
+{ "name": "Alex Doe" }
+```
+(or `{ "name": null }` / blank to clear.)
+
+**200 OK** → the updated `user` object (same shape as `/api/auth/me`), so the SPA can refresh its cached identity. Normalization matches admin `PUT /api/admin/users/{id}/name`: trim; blank/whitespace ⇒ stored `null`; idempotent no-op when unchanged.
+
+**Errors:** `400 validation_error` keyed `name` (> 100 chars); `401 unauthorized` (no/blocked session).
+
+### 3a.2 `POST /api/me/password` — self (F-04)
+
+Changes the caller's own password, requiring current-password re-authentication.
+
+**Request**
+```json
+{ "currentPassword": "correct horse battery", "newPassword": "new correct horse" }
+```
+
+**204 No Content** — the caller's **current** session stays valid; **all OTHER** sessions are purged (every other device is signed out). Behaviour:
+1. Verify `currentPassword` against the stored hash — mismatch ⇒ **`401 invalid_credentials`** (a re-auth failure is a credentials failure; nothing more is leaked).
+2. Validate `newPassword` (≥ 8, ≤ 1024) ⇒ `400 validation_error` keyed `newPassword` on failure.
+3. Replace the hash (Argon2id) and delete every session for the user **except** the one presenting the current bearer token.
+
+**Errors:** `401 invalid_credentials` (wrong current password); `401 unauthorized` (no/blocked session); `400 validation_error` keyed `newPassword`.
 
 ---
 
@@ -322,20 +391,31 @@ Ticket object (detail):
 {
   "id": "tk1042...", "teamId": "f1c2...",
   "epicId": "ep01...", "epicTitle": "Billing Revamp",
-  "type": "bug", "state": "in_progress",
+  "type": "bug", "state": "in_progress", "priority": "high",
   "title": "Login fails", "body": "Steps to reproduce...",
+  "dueDate": "2026-07-05", "isOverdue": false,
+  "assignees": [ { "id": "8e29...", "displayName": "Alex Doe" } ],
   "createdAt": "2026-06-22T09:15:00Z", "modifiedAt": "2026-06-23T12:40:00Z",
   "createdBy": "8e29c1b4-...", "createdByEmail": "alex@dataart.com", "createdByName": "Alex Doe"
 }
 ```
 - `epicId`/`epicTitle` are `null` when no epic. `type` ∈ {`bug`,`feature`,`fix`}; `state` ∈ {`new`,`ready_for_implementation`,`in_progress`,`ready_for_acceptance`,`done`}.
+- **`priority`** (F-03, ADR-0009) ∈ {`low`,`medium`,`high`,`urgent`}; always present; defaults to `medium`.
+- **`dueDate`** (F-08) is an optional calendar day `"YYYY-MM-DD"` (UTC, no time-of-day; `null` when unset). **`isOverdue`** is server-computed: `dueDate != null && dueDate < today(UTC) && state != done`.
+- **`assignees`** (F-02) is an array of `{ id, displayName }` (empty when unassigned); `displayName = name?.trim() || email`, computed server-side.
 - `createdByName` is the creator's optional display name (`null` when unset); the SPA shows `displayName(createdByName, createdByEmail)` in the "Created by" line.
 
-### 6.1 `GET /api/tickets?teamId={teamId}&type=&epicId=&search=` — authenticated
+### 6.1 `GET /api/tickets?teamId={teamId}&type=&epicId=&search=&priority=&assigneeId=&assignedToMe=&dueFilter=` — authenticated
 Board data for one team. `teamId` **required**. Optional filters combine with **AND** (A24):
 - `type` — one of the three enum values; filters by type.
 - `epicId` — UUID; filters to tickets referencing that epic.
 - `search` — case-insensitive substring over **title only** (A24).
+- **`priority`** (F-03) — one of {`low`,`medium`,`high`,`urgent`}; bad value ⇒ `400 validation_error`.
+- **`assigneeId`** (F-02) — UUID; filters to tickets assigned to that user.
+- **`assignedToMe`** (F-02) — `true` ⇒ filters to the current user's assignments (sugar for `assigneeId = me`). If both `assignedToMe=true` and `assigneeId` are sent, **`assignedToMe` wins**.
+- **`dueFilter`** (F-08) — one of {`overdue`,`has_due_date`,`no_due_date`}; `overdue` ⇒ `due_date < today AND state != done`; bad value ⇒ `400 validation_error`.
+
+All new filters run inside the already team-scoped query, so they cannot reach another team's data.
 
 **200 OK** — tickets grouped by state, in workflow order, each group ordered by `modifiedAt DESC` (A22). Per-column `count` reflects the **filtered** set (A23); per-column `total` and `wipLimit` support the WIP badge:
 ```json
@@ -343,7 +423,7 @@ Board data for one team. `teamId` **required**. Optional filters combine with **
   "teamId": "f1c2...",
   "total": 37,
   "columns": [
-    { "state": "new", "count": 10, "total": 10, "wipLimit": null, "tickets": [ { "id": "...", "type": "bug", "state": "new", "title": "Login fails", "epicId": "ep01...", "epicTitle": "Billing Revamp", "modifiedAt": "2026-06-23T12:40:00Z" } ] },
+    { "state": "new", "count": 10, "total": 10, "wipLimit": null, "tickets": [ { "id": "...", "type": "bug", "state": "new", "priority": "high", "title": "Login fails", "epicId": "ep01...", "epicTitle": "Billing Revamp", "dueDate": "2026-07-05", "isOverdue": false, "assignees": [ { "id": "8e29...", "displayName": "Alex Doe" } ], "modifiedAt": "2026-06-23T12:40:00Z" } ] },
     { "state": "ready_for_implementation", "count": 6, "total": 6, "wipLimit": 5, "tickets": [] },
     { "state": "in_progress", "count": 8, "total": 8, "wipLimit": 3, "tickets": [] },
     { "state": "ready_for_acceptance", "count": 5, "total": 5, "wipLimit": null, "tickets": [] },
@@ -365,11 +445,14 @@ Board data for one team. `teamId` **required**. Optional filters combine with **
 ### 6.3 `POST /api/tickets` — authenticated
 **Request**
 ```json
-{ "teamId": "f1c2...", "type": "bug", "title": "  Login fails  ", "body": "Steps...", "epicId": "ep01...", "state": "new" }
+{ "teamId": "f1c2...", "type": "bug", "title": "  Login fails  ", "body": "Steps...", "epicId": "ep01...", "state": "new", "priority": "high", "dueDate": "2026-07-05", "assigneeIds": ["8e29..."] }
 ```
 - `teamId`: required, must exist (V15).
 - `type`: required, ∈ enum (V13).
 - `state`: optional; defaults to `new` (A15); if provided must ∈ enum (V14).
+- `priority` (F-03): optional; defaults to `medium` when omitted/null; if provided must ∈ {`low`,`medium`,`high`,`urgent`} else `400 validation_error` keyed `priority`.
+- `dueDate` (F-08): optional; `"YYYY-MM-DD"` or null; any valid calendar date is allowed (a past date is simply overdue, not invalid); an ill-formed string ⇒ `400`.
+- `assigneeIds` (F-02): optional; when provided, each id must be an existing user who is a **member of `teamId` or an admin**, else `400 validation_error` keyed `userIds` (de-duplicated).
 - `title`: required non-empty after trim (V17); `body`: required non-empty after trim (V17). Sane max lengths (title ≤ 512, body large, A17) → overflow `400`.
 - `epicId`: optional/nullable; if set, the epic must belong to `teamId` (V16) else `400 epic_team_mismatch`.
 
@@ -380,17 +463,20 @@ Board data for one team. `teamId` **required**. Optional filters combine with **
 ```
 
 ### 6.4 `PUT /api/tickets/{id}` — authenticated (edit)
-Editable: `teamId`, `type`, `epicId`, `title`, `body`, `state`. `createdAt`/`createdBy` immutable (A16).
+Editable: `teamId`, `type`, `epicId`, `title`, `body`, `state`, `priority`, `dueDate`. `createdAt`/`createdBy` immutable (A16).
 
 **Request**
 ```json
-{ "teamId": "f1c2...", "type": "feature", "epicId": null, "title": "Login fails on Safari", "body": "Updated...", "state": "in_progress" }
+{ "teamId": "f1c2...", "type": "feature", "epicId": null, "title": "Login fails on Safari", "body": "Updated...", "state": "in_progress", "priority": "urgent", "dueDate": "2026-07-05" }
 ```
 **200 OK** → updated ticket detail.
-- **modified_at semantics (V19/V20, A19):** the server normalizes incoming values (trim strings, compare refs by id, enums by value). If every field equals the stored value → **no-op**: nothing persisted, `modifiedAt` NOT advanced (EC6), 200 with unchanged object. If any differs → apply and set `modifiedAt = now`.
+- `priority` (F-03): **required in the edit body** (like `type`/`state`); must ∈ enum else `400 validation_error` keyed `priority`. Participates in the modified_at no-op diff.
+- `dueDate` (F-08): `"YYYY-MM-DD"` or `null` to clear; participates in the modified_at no-op diff (a change bumps `modified_at`; clearing to null is a change).
+- `assigneeIds`: **not** used on this endpoint in Wave 1 — assignment is done via the dedicated `PUT /api/tickets/{id}/assignees` sub-resource (§6.7). (The field is accepted but, when omitted/null, the assignee set is left untouched, so a normal field edit never wipes assignees.)
+- **modified_at semantics (V19/V20, A19):** the server normalizes incoming values (trim strings, compare refs by id, enums by value). If every field equals the stored value → **no-op**: nothing persisted, `modifiedAt` NOT advanced (EC6), 200 with unchanged object. If any differs → apply and set `modifiedAt = now`. **Assignment is metadata and does NOT participate in this diff** (an assignee change never bumps `modified_at`, so re-assigning does not reorder the board — consistent with "comment add never bumps modified_at", V21).
 - **Same-team epic (V16):** if `epicId` non-null it must belong to the (possibly new) `teamId`, else `400 epic_team_mismatch` — enforced even on direct API calls and on team change (EC5). The SPA clears the epic on team change client-side (FR-E4-5).
 
-**Errors:** `404 not_found`; `400 validation_error` (blank title/body, invalid enum, unknown `teamId`/`epicId`); `400 epic_team_mismatch`; `409 wip_limit_reached` — when the edit MOVES the ticket into a different `(teamId, state)` that is already at its WIP limit. A no-op edit (same state) or an edit that leaves the state is never blocked (UX_LIMITS spec §4.3).
+**Errors:** `404 not_found`; `400 validation_error` (blank title/body, invalid enum incl. `priority`, unknown `teamId`/`epicId`); `400 epic_team_mismatch`; `409 wip_limit_reached` — when the edit MOVES the ticket into a different `(teamId, state)` that is already at its WIP limit. A no-op edit (same state) or an edit that leaves the state is never blocked (UX_LIMITS spec §4.3).
 
 ### 6.5 `PATCH /api/tickets/{id}/state` — authenticated (drag-and-drop)
 Dedicated minimal endpoint for column moves; persists immediately (V25).
@@ -412,7 +498,22 @@ Dedicated minimal endpoint for column moves; persists immediately (V25).
 ### 6.6 `DELETE /api/tickets/{id}` — authenticated
 Deletes the ticket and **cascades to its comments** (V22, the only mandated cascade). UI confirms first (FR-E4-6); confirmation is a client concern.
 
-**204 No Content.** **Errors:** `404 not_found`.
+**204 No Content.** **Errors:** `404 not_found`. Deleting a ticket also cascades to its `ticket_assignees` (F-02).
+
+### 6.7 `PUT /api/tickets/{id}/assignees` — authenticated (M(team of ticket), F-02)
+Replaces the ticket's **full** assignee set (authoritative complete set, mirroring wip-limits / admin `PUT .../teams`).
+
+**Request**
+```json
+{ "userIds": ["8e29c1b4-...", "a71f..."] }
+```
+**200 OK** → the updated **ticket detail** (so the SPA refreshes card + detail from one response); the body carries the new `assignees[]`.
+
+- **Semantics:** the request is the authoritative complete set. The service de-duplicates ids, diffs against the current set (add new, remove absent, leave unchanged). A no-op (same set) does **not** advance `modified_at` (assignment is metadata). `userIds` null/omitted ⇒ the empty set (clears all assignees).
+- **Eligibility (payload rule → 400, not 403):** the caller must first pass team access on the ticket (`403 forbidden` otherwise). Then each requested id must reference an **existing user** who is a **member of the ticket's team OR an admin**; an unknown id ⇒ `400 validation_error` keyed `userIds` ("One or more users do not exist."), an ineligible id ⇒ `400 validation_error` keyed `userIds` ("One or more users are not members of this ticket's team.").
+- **Stale assignees:** a user later removed from the team keeps existing assignments (they are tolerated read-side) but cannot be re-added.
+
+**Errors:** `404 not_found` (unknown ticket); `403 forbidden` (caller not admin/member of the ticket's team); `400 validation_error` keyed `userIds` (unknown or ineligible user).
 
 ---
 

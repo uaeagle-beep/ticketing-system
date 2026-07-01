@@ -9,6 +9,12 @@ public sealed class AuthOptions
     /// <summary>Verification token lifetime in hours (env TOKEN_TTL_HOURS, default 24, source §3).</summary>
     public int TokenTtlHours { get; set; } = 24;
 
+    /// <summary>
+    /// Password-reset token lifetime in hours (env PASSWORD_RESET_TTL_HOURS, default 1, F-01/ADR-0010).
+    /// Deliberately shorter than the 24h verification TTL — a reset link is higher-value.
+    /// </summary>
+    public int PasswordResetTtlHours { get; set; } = 1;
+
     /// <summary>Session bearer-token lifetime in hours (env SESSION_TTL_HOURS, default 72, ADR-0001).</summary>
     public int SessionTtlHours { get; set; } = 72;
 

@@ -17,7 +17,7 @@ const FRIENDLY: Record<string, string> = {
   account_not_verified:
     'Your account is not verified. Check your email or request a new verification link.',
   invalid_or_expired_token:
-    'This verification link is invalid or has expired. Request a new one below.',
+    'This link is invalid or has expired. Request a new one.',
   not_found: 'The requested item could not be found.',
   unauthorized: 'Your session has expired. Please log in again.',
   service_unavailable: 'The server is unavailable. Please try again in a moment.',

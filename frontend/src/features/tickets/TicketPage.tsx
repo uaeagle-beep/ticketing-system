@@ -16,16 +16,18 @@ import { ticketsApi } from '@/api/endpoints';
 import { queryKeys } from '@/lib/queryKeys';
 import type {
   CreateTicketRequest,
+  TicketPriority,
   TicketState,
   TicketType,
   UpdateTicketRequest,
 } from '@/api/types';
-import { stateOptions, typeOptions } from '@/lib/labels';
+import { priorityOptions, stateOptions, typeOptions } from '@/lib/labels';
 import { formatUtc } from '@/lib/time';
 import { displayName } from '@/lib/displayName';
 import { errorMessage, isApiErrorCode } from '@/lib/errors';
 import { useTeams } from '@/features/teams/useTeams';
 import { useEpics } from '@/features/epics/useEpics';
+import { useTeamMembers } from './useTeamMembers';
 import { LoadingState, ErrorState } from '@/components/States';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useToast } from '@/components/toast/ToastContext';
@@ -35,19 +37,32 @@ interface FormState {
   teamId: string;
   type: TicketType;
   state: TicketState;
+  priority: TicketPriority;
   epicId: string; // '' means no epic
+  dueDate: string; // '' means no due date; otherwise "YYYY-MM-DD"
   title: string;
   body: string;
+  assigneeIds: string[];
 }
 
 const EMPTY_FORM: FormState = {
   teamId: '',
   type: 'bug',
   state: 'new',
+  priority: 'medium',
   epicId: '',
+  dueDate: '',
   title: '',
   body: '',
+  assigneeIds: [],
 };
+
+// Order-insensitive comparison of two id sets (used to decide whether assignees changed on edit).
+function sameIdSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every((id) => set.has(id));
+}
 
 export function TicketPage() {
   const { id } = useParams<{ id: string }>();
@@ -94,9 +109,12 @@ export function TicketPage() {
         teamId: t.teamId,
         type: t.type,
         state: t.state,
+        priority: t.priority,
         epicId: t.epicId ?? '',
+        dueDate: t.dueDate ?? '',
         title: t.title,
         body: t.body,
+        assigneeIds: t.assignees.map((a) => a.id),
       });
       setInitialized(true);
     }
@@ -104,6 +122,12 @@ export function TicketPage() {
 
   const epicsQuery = useEpics(form.teamId || undefined);
   const epics = epicsQuery.data ?? [];
+
+  // Candidate assignees for the selected team (members ∪ admins). Empty for non-admins (no
+  // member-listing endpoint — see useTeamMembers's contract-gap note).
+  const { candidates: assigneeCandidates, canList: canListAssignees } = useTeamMembers(
+    form.teamId || undefined,
+  );
 
   // If the currently-selected epic isn't in the loaded team's epic list (e.g.
   // after a team change), clear it so we never submit a cross-team epic (V16).
@@ -121,10 +145,20 @@ export function TicketPage() {
 
   const handleTeamChange = (teamId: string) => {
     // Changing team clears the selected epic (FR-E4-5); the epic dropdown then
-    // reloads for the new team. A team change also changes which states are full,
-    // so clear any stale WIP block (UX §4.3).
-    setForm((f) => ({ ...f, teamId, epicId: '' }));
+    // reloads for the new team. Assignees are also team-scoped (eligibility = team members ∪ admins),
+    // so clear them on team change too (analogous to clear-epic, §7.1). A team change also changes
+    // which states are full, so clear any stale WIP block (UX §4.3).
+    setForm((f) => ({ ...f, teamId, epicId: '', assigneeIds: [] }));
     setWipBlocked(false);
+  };
+
+  const toggleAssignee = (userId: string) => {
+    setForm((f) => ({
+      ...f,
+      assigneeIds: f.assigneeIds.includes(userId)
+        ? f.assigneeIds.filter((id) => id !== userId)
+        : [...f.assigneeIds, userId],
+    }));
   };
 
   const handleStateChange = (state: TicketState) => {
@@ -156,7 +190,17 @@ export function TicketPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (payload: UpdateTicketRequest) => ticketsApi.update(id as string, payload),
+    // Save the scalar fields, then (only if the assignee set changed) replace it via the dedicated
+    // sub-resource (§4.2 recommended primary path). The main PUT omits assigneeIds so it leaves the
+    // set untouched (R-10). Assignment does not bump modified_at, so ordering stays stable.
+    mutationFn: async (payload: UpdateTicketRequest) => {
+      const saved = await ticketsApi.update(id as string, payload);
+      const original = (ticketQuery.data?.assignees ?? []).map((a) => a.id);
+      if (!sameIdSet(original, form.assigneeIds)) {
+        return ticketsApi.setAssignees(id as string, { userIds: form.assigneeIds });
+      }
+      return saved;
+    },
     onSuccess: (updated) => {
       toast.showSuccess('Ticket saved.');
       queryClient.setQueryData(queryKeys.ticket(updated.id), updated);
@@ -194,6 +238,7 @@ export function TicketPage() {
     if (!validate()) return;
 
     const epicId = form.epicId || null;
+    const dueDate = form.dueDate || null;
     if (isCreate) {
       createMutation.mutate({
         teamId: form.teamId,
@@ -202,6 +247,9 @@ export function TicketPage() {
         body: form.body.trim(),
         epicId,
         state: form.state,
+        priority: form.priority,
+        dueDate,
+        assigneeIds: form.assigneeIds.length ? form.assigneeIds : undefined,
       });
     } else {
       updateMutation.mutate({
@@ -211,6 +259,8 @@ export function TicketPage() {
         title: form.title.trim(),
         body: form.body.trim(),
         state: form.state,
+        priority: form.priority,
+        dueDate,
       });
     }
   };
@@ -348,6 +398,67 @@ export function TicketPage() {
                   {WIP_BLOCK_MESSAGE}
                 </span>
               ) : null}
+            </div>
+
+            <div className="field">
+              <label htmlFor="ticket-priority">Priority</label>
+              <select
+                id="ticket-priority"
+                className="select"
+                value={form.priority}
+                onChange={(e) => updateField('priority', e.target.value as TicketPriority)}
+                disabled={saving}
+              >
+                {priorityOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field">
+              <label htmlFor="ticket-due-date">Due date</label>
+              <input
+                id="ticket-due-date"
+                className="input"
+                type="date"
+                value={form.dueDate}
+                onChange={(e) => updateField('dueDate', e.target.value)}
+                disabled={saving}
+              />
+            </div>
+
+            <div className="field full">
+              <label htmlFor="ticket-assignees">Assignees</label>
+              {canListAssignees ? (
+                assigneeCandidates.length > 0 ? (
+                  <div id="ticket-assignees" className="assignee-picker" role="group" aria-label="Assignees">
+                    {assigneeCandidates.map((u) => (
+                      <label key={u.id} className="assignee-option">
+                        <input
+                          type="checkbox"
+                          checked={form.assigneeIds.includes(u.id)}
+                          onChange={() => toggleAssignee(u.id)}
+                          disabled={saving}
+                        />
+                        <span>{u.displayName}</span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="muted">No eligible users for this team.</span>
+                )
+              ) : (
+                // No member-listing endpoint is available to a non-admin (contract gap); show the
+                // current assignees read-only. Admins can manage assignees; a member cannot add here.
+                <span className="muted">
+                  {form.assigneeIds.length > 0
+                    ? `${form.assigneeIds.length} assigned`
+                    : 'Unassigned'}
+                  {' — assignee editing requires an administrator.'}
+                </span>
+              )}
             </div>
 
             <div className="field full">

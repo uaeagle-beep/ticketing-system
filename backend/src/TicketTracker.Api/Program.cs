@@ -34,6 +34,7 @@ builder.Services.Configure<AuthOptions>(o =>
 {
     var config = builder.Configuration;
     o.TokenTtlHours = config.GetValue("TOKEN_TTL_HOURS", 24);
+    o.PasswordResetTtlHours = config.GetValue("PASSWORD_RESET_TTL_HOURS", 1);
     o.SessionTtlHours = config.GetValue("SESSION_TTL_HOURS", 72);
     o.FrontendUrl = config.GetValue("FRONTEND_URL", "http://localhost:8080") ?? "http://localhost:8080";
     o.DefaultSignupTeamName = config.GetValue("DEFAULT_SIGNUP_TEAM_NAME", "Demo Team") ?? "Demo Team";

@@ -1,14 +1,14 @@
 # Automated Test Report — Ticket Tracker
 
-_Generated: 2026-07-01 · commit `d08308e` (main)_
+_Updated: 2026-07-01 · Wave 1 (ticket priority, multiple assignees, due date; self-service password reset, self-profile, default-team auto-provisioning)_
 
 ## 1. Regression run — summary
 
 | Suite | Type | Files | Tests | Result | Duration |
 |---|---|---|---:|---|---|
-| **Backend** (`dotnet test`) | integration (HTTP) + unit | 16 | **234** | ✅ **234 passed / 0 failed / 0 skipped** | ~31 s |
-| **Frontend** (`vitest`) | unit + component (jsdom) | 24 | **168** | ✅ **168 passed / 0 failed** | ~17 s |
-| **Total automated (unit/component/integration)** | | 40 | **402** | ✅ **all green** | |
+| **Backend** (`dotnet test`) | integration (HTTP) + unit | 22 | **330** | ✅ **330 passed / 0 failed / 0 skipped** | ~49 s |
+| **Frontend** (`vitest`) | unit + component (jsdom) | 29 | **208** | ✅ **208 passed / 0 failed** | ~42 s |
+| **Total automated (unit/component/integration)** | | 51 | **538** | ✅ **all green** | |
 | Playwright E2E — **smoke** | browser (vs live prod) | 1 spec | **6** | ✅ **6 passed** (against https://honcharenko.pp.ua) | ~17 s |
 | Playwright E2E — happy-path | browser end-to-end | 1 spec | **1** | ✅ **1 passed** on an isolated server stack (`tt-e2e` + Mailpit); CI-wired (`e2e` job) | ~10 s |
 
@@ -112,3 +112,23 @@ A dedicated QA gap analysis of User Management added **55 tests** (backend +32, 
 | `features/users/ResetPasswordDialog.test.tsx` | 3 | password shown once, blocked refusal, cancel |
 | `features/users/GeneratedPasswordNotice.test.tsx` | 3 | copy-to-clipboard + "Copied" state |
 | `components/AppLayout.test.tsx` | 4 | header displayName (name→name, blank→email), admin-only "Users" nav visibility |
+
+## 9. Wave 1 additions (2026-07-01) — priority / assignees / due date / password-reset / self-profile / default-team
+
+Backend **+96** tests (234 → **330**), frontend **+40** (168 → **208**); full regression green, migration `20260701121126_AddWave1` parity clean. No product defects found (two suspicious signals traced to test-harness limits: session-TTL clock advance, and single-connection SQLite parallel-tx — the product logic is correct; the F-10 race convergence is proven at service level à la `LastAdminGuardConcurrencyTests`).
+
+| New / extended test file | Tests | Area |
+|---|---:|---|
+| `Api/TicketPriorityTests.cs` | 13 | priority default medium, each value, invalid→400 `priority`, required-in-PUT, modified_at diff, `&priority=` filter |
+| `Api/TicketAssigneeTests.cs` | 21 | set/replace/clear, admin-non-member allowed, non-member/unknown→400 `userIds`, dedupe, no modified_at bump, `assigneeId`/`assignedToMe` (+precedence), IDOR 403, delete-cascade |
+| `Api/TicketDueDateTests.cs` | 15 | create/edit/clear, past allowed, TestClock-driven `isOverdue` (today boundary, done excluded), `dueFilter` 3 values + bad→400 |
+| `Api/PasswordResetTests.cs` | 13 | 202 + link capture, single-use, 1h expiry, all-sessions purge, reissue invalidates, non-enumeration (unknown/unverified/blocked), blocked-after-issuance |
+| `Api/SelfProfileTests.cs` | 13 | name set/clear/>100→400, no cross-user route, change-pw 204 + current session kept / others purged, wrong current→401, short new→400 |
+| `Unit/DefaultTeamProvisioningRaceTests.cs` + `Api/DefaultTeamProvisioningTests.cs` | 2 + 1 | parallel-verify convergence (one team, both members), auto-create + no-dup |
+| `features/board/FilterBar.wave1.test.tsx` | 13 | priority/due/assignee controls, "Assigned to me", mutual exclusion, Clear |
+| `features/board/TicketCard.wave1.test.tsx` | 8 | priority badge, due/overdue pill, assignee avatars + "+N" |
+| `features/auth/ForgotPasswordPage.test.tsx` | 5 | non-committal success, same message for unknown, server error |
+| `features/auth/ResetPasswordPage.test.tsx` | 6 | missing-token state, min-length, mismatch, success, invalid/expired retry |
+| `features/account/AccountPage.test.tsx` | 8 | email read-only, trimmed name/clear, pw change (min-length, mismatch, 401→field error, clear on success) |
+
+**Known gap:** the assignee picker sources candidates from the admin user-list, so for **non-admin** users the picker pool is empty (no member-visible `GET /api/teams/{id}/members` yet); backend eligibility is still enforced (400). "Assigned to me" and read-only display of existing assignees work for everyone. Slated for a later wave.

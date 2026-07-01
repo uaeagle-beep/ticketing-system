@@ -134,7 +134,7 @@ public sealed class TicketsTests : IntegrationTestBase
 
         Factory.Clock.Advance(TimeSpan.FromMinutes(15));
         var updated = await ReadAsync<TicketDto>(await ctx.Client.PutAsJsonAsync($"/api/tickets/{ticket.Id}",
-            new { teamId = ctx.TeamId, type = "bug", title = "T", body = "B", state = "in_progress", epicId = (Guid?)null }));
+            new { teamId = ctx.TeamId, type = "bug", title = "T", body = "B", state = "in_progress", priority = "medium", epicId = (Guid?)null }));
 
         updated.State.Should().Be("in_progress");
         updated.ModifiedAt.Should().BeAfter(ticket.ModifiedAt, "an actual change advances modified_at (V19)");
@@ -148,9 +148,10 @@ public sealed class TicketsTests : IntegrationTestBase
             new { teamId = ctx.TeamId, type = "bug", title = "Login fails", body = "Steps..." }));
 
         Factory.Clock.Advance(TimeSpan.FromMinutes(15));
-        // Same values (title/body re-sent, whitespace-padded to exercise normalization).
+        // Same values (title/body re-sent, whitespace-padded to exercise normalization). Priority is
+        // required in the edit body and re-sent at its default so the whole update is a true no-op.
         var result = await ReadAsync<TicketDto>(await ctx.Client.PutAsJsonAsync($"/api/tickets/{ticket.Id}",
-            new { teamId = ctx.TeamId, type = "bug", title = "  Login fails  ", body = " Steps... ", state = "new", epicId = (Guid?)null }));
+            new { teamId = ctx.TeamId, type = "bug", title = "  Login fails  ", body = " Steps... ", state = "new", priority = "medium", epicId = (Guid?)null }));
 
         result.ModifiedAt.Should().Be(ticket.ModifiedAt, "saving unchanged values must not advance modified_at (V20, EC6)");
     }
@@ -165,8 +166,8 @@ public sealed class TicketsTests : IntegrationTestBase
             new { teamId = ctx.TeamId, type = "bug", title = "T", body = "B" }));
 
         object body = field == "type"
-            ? new { teamId = ctx.TeamId, type = badValue, title = "T", body = "B", state = "new", epicId = (Guid?)null }
-            : new { teamId = ctx.TeamId, type = "bug", title = "T", body = "B", state = badValue, epicId = (Guid?)null };
+            ? new { teamId = ctx.TeamId, type = badValue, title = "T", body = "B", state = "new", priority = "medium", epicId = (Guid?)null }
+            : new { teamId = ctx.TeamId, type = "bug", title = "T", body = "B", state = badValue, priority = "medium", epicId = (Guid?)null };
 
         var resp = await ctx.Client.PutAsJsonAsync($"/api/tickets/{ticket.Id}", body);
         resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -181,7 +182,7 @@ public sealed class TicketsTests : IntegrationTestBase
             new { teamId = ctx.TeamId, type = "bug", title = "T", body = "B" }));
 
         var resp = await ctx.Client.PutAsJsonAsync($"/api/tickets/{ticket.Id}",
-            new { teamId = Guid.NewGuid(), type = "bug", title = "T", body = "B", state = "new", epicId = (Guid?)null });
+            new { teamId = Guid.NewGuid(), type = "bug", title = "T", body = "B", state = "new", priority = "medium", epicId = (Guid?)null });
         resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await ReadErrorAsync(resp)).Errors.Should().ContainKey("teamId");
     }
@@ -201,7 +202,7 @@ public sealed class TicketsTests : IntegrationTestBase
 
         // Force team=Payments while keeping the Platform epic (bypassing the UI which would clear it).
         var resp = await client.PutAsJsonAsync($"/api/tickets/{ticket.Id}",
-            new { teamId = payments.Id, type = "bug", title = "T", body = "B", state = "new", epicId = platformEpic.Id });
+            new { teamId = payments.Id, type = "bug", title = "T", body = "B", state = "new", priority = "medium", epicId = platformEpic.Id });
         resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await ReadErrorAsync(resp)).Code.Should().Be("epic_team_mismatch");
 
@@ -225,7 +226,7 @@ public sealed class TicketsTests : IntegrationTestBase
             new { teamId = platform.Id, type = "bug", title = "T", body = "B", epicId = platformEpic.Id }));
 
         var updated = await ReadAsync<TicketDto>(await client.PutAsJsonAsync($"/api/tickets/{ticket.Id}",
-            new { teamId = payments.Id, type = "bug", title = "T", body = "B", state = "new", epicId = (Guid?)null }));
+            new { teamId = payments.Id, type = "bug", title = "T", body = "B", state = "new", priority = "medium", epicId = (Guid?)null }));
         updated.TeamId.Should().Be(payments.Id);
         updated.EpicId.Should().BeNull("clearing the epic on team change is accepted");
     }
@@ -244,7 +245,7 @@ public sealed class TicketsTests : IntegrationTestBase
             new { teamId = platform.Id, type = "bug", title = "T", body = "B" }));
 
         var updated = await ReadAsync<TicketDto>(await client.PutAsJsonAsync($"/api/tickets/{ticket.Id}",
-            new { teamId = payments.Id, type = "bug", title = "T", body = "B", state = "new", epicId = paymentsEpic.Id }));
+            new { teamId = payments.Id, type = "bug", title = "T", body = "B", state = "new", priority = "medium", epicId = paymentsEpic.Id }));
         updated.TeamId.Should().Be(payments.Id);
         updated.EpicId.Should().Be(paymentsEpic.Id);
     }

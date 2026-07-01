@@ -68,6 +68,11 @@ public sealed record EpicDto(
     [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
     [property: JsonPropertyName("modifiedAt")] DateTime ModifiedAt);
 
+// A lightweight assignee reference mirror (id + display name) — Wave 1 F-02 (§4.2).
+public sealed record AssigneeRefDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("displayName")] string DisplayName);
+
 public sealed record TicketDto(
     [property: JsonPropertyName("id")] Guid Id,
     [property: JsonPropertyName("teamId")] Guid TeamId,
@@ -81,7 +86,12 @@ public sealed record TicketDto(
     [property: JsonPropertyName("modifiedAt")] DateTime ModifiedAt,
     [property: JsonPropertyName("createdBy")] Guid CreatedBy,
     [property: JsonPropertyName("createdByEmail")] string CreatedByEmail,
-    [property: JsonPropertyName("createdByName")] string? CreatedByName = null);
+    [property: JsonPropertyName("createdByName")] string? CreatedByName = null,
+    // Wave 1 additions (§4.1/§4.2/§4.3). Defaulted so existing positional call-sites keep compiling.
+    [property: JsonPropertyName("priority")] string Priority = "medium",
+    [property: JsonPropertyName("dueDate")] DateOnly? DueDate = null,
+    [property: JsonPropertyName("isOverdue")] bool IsOverdue = false,
+    [property: JsonPropertyName("assignees")] List<AssigneeRefDto>? Assignees = null);
 
 public sealed record TicketCardDto(
     [property: JsonPropertyName("id")] Guid Id,
@@ -90,7 +100,12 @@ public sealed record TicketCardDto(
     [property: JsonPropertyName("title")] string Title,
     [property: JsonPropertyName("epicId")] Guid? EpicId,
     [property: JsonPropertyName("epicTitle")] string? EpicTitle,
-    [property: JsonPropertyName("modifiedAt")] DateTime ModifiedAt);
+    [property: JsonPropertyName("modifiedAt")] DateTime ModifiedAt,
+    // Wave 1 additions on the board card (§4.1/§4.2/§4.3).
+    [property: JsonPropertyName("priority")] string Priority = "medium",
+    [property: JsonPropertyName("dueDate")] DateOnly? DueDate = null,
+    [property: JsonPropertyName("isOverdue")] bool IsOverdue = false,
+    [property: JsonPropertyName("assignees")] List<AssigneeRefDto>? Assignees = null);
 
 public sealed record BoardColumnDto(
     [property: JsonPropertyName("state")] string State,

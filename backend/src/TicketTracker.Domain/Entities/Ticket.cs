@@ -22,6 +22,16 @@ public class Ticket
     public TicketType Type { get; set; }
     public TicketState State { get; set; }
 
+    /// <summary>
+    /// Severity level (F-03, ADR-0009). Defaults to <see cref="TicketPriority.Medium"/> so a value
+    /// always exists even if a code path forgets to set it; the service sets it explicitly on create.
+    /// Filter + badge only — does NOT affect board ordering (A22).
+    /// </summary>
+    public TicketPriority Priority { get; set; } = TicketPriority.Medium;
+
+    /// <summary>Optional calendar-day deadline interpreted as UTC (F-08, ADR-0009). Null = no due date.</summary>
+    public DateOnly? DueDate { get; set; }
+
     public string Title { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
 
@@ -33,4 +43,7 @@ public class Ticket
     public User? CreatedByUser { get; set; }
 
     public ICollection<Comment> Comments { get; set; } = new List<Comment>();
+
+    /// <summary>Assignees (F-02, M:N via <see cref="TicketAssignee"/>). Cascade-deleted with the ticket.</summary>
+    public ICollection<TicketAssignee> Assignees { get; set; } = new List<TicketAssignee>();
 }

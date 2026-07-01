@@ -22,9 +22,16 @@ public abstract class IntegrationTestBase : IDisposable
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    /// <summary>
+    /// The configured default signup team (F-10). Blank by default ⇒ auto-provisioning OFF (the pre-Wave-1
+    /// baseline: no teams until one is created). Test classes that exercise the default-team auto-create /
+    /// auto-join branch override this to return "Demo Team".
+    /// </summary>
+    protected virtual string DefaultSignupTeamName => string.Empty;
+
     protected IntegrationTestBase()
     {
-        Factory = new CustomWebApplicationFactory();
+        Factory = new CustomWebApplicationFactory { DefaultSignupTeamName = DefaultSignupTeamName };
         Factory.Clock.SetUtcNow(new DateTime(2026, 06, 30, 12, 00, 00, DateTimeKind.Utc));
         Client = Factory.CreateClient();
     }

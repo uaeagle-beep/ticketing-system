@@ -78,8 +78,12 @@ export const sampleTicketDetail: TicketDetail = {
   epicTitle: sampleEpic.title,
   type: 'bug',
   state: 'in_progress',
+  priority: 'high',
   title: 'Login fails',
   body: 'Steps to reproduce...',
+  dueDate: '2026-07-05',
+  isOverdue: false,
+  assignees: [{ id: sampleUser.id, displayName: sampleUser.email }],
   createdAt: '2026-06-22T09:15:00Z',
   modifiedAt: '2026-06-23T12:40:00Z',
   createdBy: sampleUser.id,
@@ -139,9 +143,13 @@ export function makeBoard(overrides: Partial<Board> = {}): Board {
             id: sampleTicketDetail.id,
             type: 'bug',
             state: 'new',
+            priority: 'high',
             title: 'Login fails',
             epicId: sampleEpic.id,
             epicTitle: sampleEpic.title,
+            dueDate: '2026-07-05',
+            isOverdue: false,
+            assignees: [{ id: sampleUser.id, displayName: sampleUser.email }],
             modifiedAt: '2026-06-23T12:40:00Z',
           },
         ],
@@ -197,7 +205,28 @@ export const handlers = [
     ),
   ),
 
+  http.post(`${API}/auth/forgot-password`, () =>
+    ok<MessageResponse>(
+      { message: 'If an account exists for that address, a password reset link has been sent.' },
+      202,
+    ),
+  ),
+
+  http.post(`${API}/auth/reset-password`, () =>
+    ok<MessageResponse>(
+      { message: 'Your password has been reset. Please log in with your new password.' },
+      200,
+    ),
+  ),
+
   http.get(`${API}/auth/me`, () => ok<AuthUser>(sampleUser, 200)),
+
+  // Self-service account (§4.5, F-04)
+  http.put(`${API}/me/profile`, async ({ request }) => {
+    const body = (await request.json()) as { name: string | null };
+    return ok<AuthUser>({ ...sampleUser, name: body.name }, 200);
+  }),
+  http.post(`${API}/me/password`, () => new HttpResponse(null, { status: 204 })),
 
   // Teams (§4)
   http.get(`${API}/teams`, () => ok<Team[]>([sampleTeam], 200)),
@@ -222,6 +251,15 @@ export const handlers = [
       { id: sampleTicketDetail.id, state: body.state, modifiedAt: '2026-06-24T08:00:00Z' },
       200,
     );
+  }),
+  http.put(`${API}/tickets/:id/assignees`, async ({ request }) => {
+    const body = (await request.json()) as { userIds: string[] };
+    // Echo the requested set back as the ticket's assignees (display name = email in the fixture).
+    const assignees = body.userIds.map((uid) => ({
+      id: uid,
+      displayName: uid === sampleUser.id ? sampleUser.email : uid,
+    }));
+    return ok<TicketDetail>({ ...sampleTicketDetail, assignees }, 200);
   }),
   http.delete(`${API}/tickets/:id`, () => new HttpResponse(null, { status: 204 })),
 
