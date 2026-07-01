@@ -68,10 +68,10 @@ jobs:
   e2e:
     name: E2E (Playwright + Docker stack)
     runs-on: ubuntu-latest
-    # E2E spins up the whole stack and depends on a working mail round-trip; keep
-    # it from blocking the overall pass/fail while still surfacing failures + the
-    # HTML report. Flip this to `false` once the suite is proven stable in CI.
-    continue-on-error: true
+    # E2E spins up the whole stack (web + api + db + mailpit) and runs the full
+    # signup -> verify -> promote -> team/epic/ticket/comment -> drag happy path.
+    # Now that it is verified green it is a REQUIRED signal — a failure fails CI.
+    # (It still uploads the HTML report + traces below for debugging.)
     # Pin the compose project so `up`, `down`, and the in-test admin-promote
     # (docker compose exec db psql, from frontend/) all target the same stack.
     env:
