@@ -29,6 +29,7 @@ import { stateLabel } from '@/lib/labels';
 import { useTeams } from '@/features/teams/useTeams';
 import { useEpics } from '@/features/epics/useEpics';
 import { useTeamMembers } from '@/features/tickets/useTeamMembers';
+import { useLabels } from '@/features/labels/useLabels';
 import { useBoardQuery, useMoveTicketMutation, emptyBoard, normalizeBoard } from './useBoard';
 import { BoardColumn } from './BoardColumn';
 import { FilterBar } from './FilterBar';
@@ -107,6 +108,10 @@ export function BoardPage() {
   // (no member-listing endpoint — see useTeamMembers's contract-gap note); "Assigned to me" still works.
   const { candidates: assigneeOptions } = useTeamMembers(selectedTeamId);
 
+  // The team's labels for the by-label board filter (Wave 2, §8.4). Empty when the team has none.
+  const labelsQuery = useLabels(selectedTeamId);
+  const labelOptions = labelsQuery.data ?? [];
+
   const boardQuery = useBoardQuery(selectedTeamId, filters);
   const moveMutation = useMoveTicketMutation(selectedTeamId);
 
@@ -135,7 +140,8 @@ export function BoardPage() {
       filters.priority ||
       filters.assignedToMe ||
       filters.assigneeId ||
-      filters.dueFilter,
+      filters.dueFilter ||
+      filters.labelId,
   );
 
   const handleTeamChange = (teamId: string) => {
@@ -269,6 +275,7 @@ export function BoardPage() {
         epicsLoading={epicsQuery.isLoading}
         total={board?.total ?? 0}
         assigneeOptions={assigneeOptions}
+        labelOptions={labelOptions}
         onChange={setFilters}
         onClear={() => setFilters({})}
       />

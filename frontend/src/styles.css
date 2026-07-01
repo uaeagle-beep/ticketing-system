@@ -247,6 +247,57 @@ h4 {
   font-size: 11px;
   line-height: 1;
 }
+/* Label chips (Wave 2, ADR-0016). Background + text color are inline (per-label); the base rule only
+   sets shape/typography. A row of chips wraps under the title on cards and in the detail. */
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 1px 8px;
+  border-radius: 10px;
+}
+.label-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+/* Label management panel (Teams page) + inline color picker. */
+.labels-manager {
+  padding: 8px 0;
+}
+.labels-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.labels-list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.color-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.color-select input[type='color'] {
+  width: 34px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
 .type-bug {
   background: #ffebe6;
   color: var(--type-bug);
@@ -965,4 +1016,135 @@ h4 {
   border-radius: 4px;
   user-select: all;
   word-break: break-all;
+}
+
+/* ---- Wave 2: notifications bell + badge (AppLayout) ---- */
+.notif-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-right: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+.notif-bell:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.notif-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+/* ---- Wave 2: notifications page ---- */
+.notifications-page {
+  max-width: 760px;
+  margin: 0 auto;
+}
+.notification-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--surface);
+}
+.notification-item {
+  border-bottom: 1px solid var(--border);
+}
+.notification-item:last-child {
+  border-bottom: none;
+}
+.notification-item.unread {
+  background: var(--warning-bg);
+}
+.notification-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text);
+}
+.notification-button:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.notification-button:disabled {
+  cursor: default;
+}
+.notification-item.tombstone .notification-summary {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.unread-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+.notification-summary {
+  flex: 1 1 auto;
+}
+.notification-time {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+
+/* ---- Wave 2: ticket-detail side column (comments + activity) ---- */
+.ticket-side {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ---- Wave 2: activity timeline ---- */
+.activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.activity-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+.activity-summary {
+  color: var(--text);
+}
+.activity-time {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+  font-size: 12px;
 }

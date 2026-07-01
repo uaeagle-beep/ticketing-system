@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using TicketTracker.Application.Abstractions;
 using TicketTracker.Application.Common;
 using TicketTracker.Application.Dtos;
+using TicketTracker.Application.Events;
 using TicketTracker.Application.Validation;
 using TicketTracker.Domain.Entities;
 using TicketTracker.Domain.Enums;
@@ -21,12 +22,14 @@ public sealed class TicketService
     private readonly IAppDbContext _db;
     private readonly IClock _clock;
     private readonly ICurrentUser _currentUser;
+    private readonly IDomainEventPublisher _publisher;
 
-    public TicketService(IAppDbContext db, IClock clock, ICurrentUser currentUser)
+    public TicketService(IAppDbContext db, IClock clock, ICurrentUser currentUser, IDomainEventPublisher publisher)
     {
         _db = db;
         _clock = clock;
         _currentUser = currentUser;
+        _publisher = publisher;
     }
 
     // ----- Board read (API_CONTRACT §6.1) -----
@@ -34,6 +37,7 @@ public sealed class TicketService
     public async Task<BoardDto> GetBoardAsync(
         Guid? teamId, string? type, Guid? epicId, string? search,
         string? priority, Guid? assigneeId, bool assignedToMe, string? dueFilter,
+        Guid? labelId,
         CancellationToken ct)
     {
         if (teamId is null || teamId == Guid.Empty)
@@ -59,6 +63,14 @@ public sealed class TicketService
         if (epicId is not null && epicId != Guid.Empty)
         {
             query = query.Where(t => t.EpicId == epicId);
+        }
+
+        // Label filter (Wave 2, §8.4): ANDed inside the already team-scoped query. An unknown label id
+        // simply matches nothing (no 400 for an unknown filter value — consistent with the epicId filter).
+        if (labelId is not null && labelId != Guid.Empty)
+        {
+            var lid = labelId.Value;
+            query = query.Where(t => t.Labels.Any(l => l.LabelId == lid));
         }
 
         // Priority filter (F-03): one of the canonical values or 400 (§4.1).
@@ -125,6 +137,10 @@ public sealed class TicketService
                 Assignees = t.Assignees
                     .OrderBy(a => a.CreatedAt)
                     .Select(a => new { a.UserId, a.User!.Name, a.User.Email })
+                    .ToList(),
+                Labels = t.Labels
+                    .OrderBy(l => l.Label!.NameNormalized)
+                    .Select(l => new { l.LabelId, l.Label!.Name, l.Label.Color })
                     .ToList()
             })
             .ToListAsync(ct);
@@ -163,7 +179,8 @@ public sealed class TicketService
                     c.DueDate,
                     ComputeIsOverdue(c.DueDate, c.State, today),
                     c.Assignees.Select(a => new AssigneeRefDto(a.UserId, DisplayName(a.Name, a.Email))).ToList(),
-                    c.ModifiedAt))
+                    c.ModifiedAt,
+                    c.Labels.Select(l => new LabelRefDto(l.LabelId, l.Name, l.Color)).ToList()))
                 .ToList();
             var total = totalsByState.TryGetValue(state, out var t) ? t : 0;
             int? wipLimit = limitsByState.TryGetValue(EnumCanonical.ToCanonical(state), out var max) ? max : null;
@@ -188,6 +205,10 @@ public sealed class TicketService
                 Assignees = t.Assignees
                     .OrderBy(a => a.CreatedAt)
                     .Select(a => new { a.UserId, a.User!.Name, a.User.Email })
+                    .ToList(),
+                Labels = t.Labels
+                    .OrderBy(l => l.Label!.NameNormalized)
+                    .Select(l => new { l.LabelId, l.Label!.Name, l.Label.Color })
                     .ToList()
             })
             .FirstOrDefaultAsync(ct)
@@ -199,7 +220,17 @@ public sealed class TicketService
         var assignees = dto.Assignees
             .Select(a => new AssigneeRefDto(a.UserId, DisplayName(a.Name, a.Email)))
             .ToList();
-        return ToDetail(dto.Ticket, dto.EpicTitle, dto.CreatedByEmail, dto.CreatedByName, assignees);
+
+        var labels = dto.Labels
+            .Select(l => new LabelRefDto(l.LabelId, l.Name, l.Color))
+            .ToList();
+
+        // isWatching for the current user (§6.7): a single AnyAsync on TicketWatchers.
+        var currentUserId = _currentUser.UserId;
+        var isWatching = currentUserId is { } uid
+            && await _db.TicketWatchers.AsNoTracking().AnyAsync(w => w.TicketId == id && w.UserId == uid, ct);
+
+        return ToDetail(dto.Ticket, dto.EpicTitle, dto.CreatedByEmail, dto.CreatedByName, assignees, isWatching, labels);
     }
 
     // ----- Create (API_CONTRACT §6.3) -----
@@ -274,17 +305,39 @@ public sealed class TicketService
         _db.Tickets.Add(ticket);
 
         // Apply the initial assignee set (if provided) in the same save (§4.2 create semantics).
-        if (eligibleAssignees is not null)
-            foreach (var userId in eligibleAssignees)
-                _db.TicketAssignees.Add(new TicketAssignee
-                {
-                    Id = Guid.NewGuid(),
-                    TicketId = ticket.Id,
-                    UserId = userId,
-                    CreatedAt = now
-                });
+        var initialAssignees = eligibleAssignees ?? new HashSet<Guid>();
+        foreach (var userId in initialAssignees)
+            _db.TicketAssignees.Add(new TicketAssignee
+            {
+                Id = Guid.NewGuid(),
+                TicketId = ticket.Id,
+                UserId = userId,
+                CreatedAt = now
+            });
+
+        // Auto-watch (§6.3): the creator, plus every initial assignee. Inside the same save as the mutation.
+        var actorId = ticket.CreatedBy;
+        await WatchService.AddWatch(_db, ticket.Id, actorId, now, ct);
+        foreach (var userId in initialAssignees)
+            await WatchService.AddWatch(_db, ticket.Id, userId, now, ct);
 
         await _db.SaveChangesAsync(ct);
+
+        // Publish AFTER commit (§6.2): ticket_created, plus ticket_assignees_changed if the create set
+        // is non-empty. The creator is the actor and is never notified about their own action.
+        var actor = await ResolveActorDisplayNameAsync(actorId, ct);
+        var events = new List<TicketEvent>
+        {
+            new(EventType.TicketCreated, ticket.Id, actorId, null, null,
+                EventSummaries.TicketCreated(actor), EventSummaries.TicketCreated(actor))
+        };
+        if (initialAssignees.Count > 0)
+        {
+            var data = EventSummaries.AssigneesData(initialAssignees, Array.Empty<Guid>());
+            var summary = EventSummaries.AssigneesChanged(actor, initialAssignees.Count, 0);
+            events.Add(new TicketEvent(EventType.TicketAssigneesChanged, ticket.Id, actorId, null, data, summary, summary));
+        }
+        await _publisher.PublishAsync(events, ct);
 
         return await GetByIdAsync(ticket.Id, ct);
     }
@@ -350,21 +403,31 @@ public sealed class TicketService
         // before any mutation below.
         await EnforceWipLimitAsync(teamId, state, ticket.TeamId, ticket.State, ct);
 
+        // Capture the "before" scalar values so we can emit one event per changed field (§6.1).
+        var beforeTeamId = ticket.TeamId;
+        var beforeEpicId = ticket.EpicId;
+        var beforeType = ticket.Type;
+        var beforeState = ticket.State;
+        var beforePriority = ticket.Priority;
+        var beforeDueDate = ticket.DueDate;
+        var beforeTitle = ticket.Title;
+        var beforeBody = ticket.Body;
+
         // Uniform no-op detection (§6.2, A19): compare every normalized editable field. Assignment is
         // metadata and does NOT participate in the modified_at diff (§4.2) — handled separately below.
         var changed =
-            ticket.TeamId != teamId ||
-            ticket.EpicId != newEpicId ||
-            ticket.Type != type ||
-            ticket.State != state ||
-            ticket.Priority != priority ||
-            ticket.DueDate != request.DueDate ||
-            !string.Equals(ticket.Title, title, StringComparison.Ordinal) ||
-            !string.Equals(ticket.Body, body, StringComparison.Ordinal);
+            beforeTeamId != teamId ||
+            beforeEpicId != newEpicId ||
+            beforeType != type ||
+            beforeState != state ||
+            beforePriority != priority ||
+            beforeDueDate != request.DueDate ||
+            !string.Equals(beforeTitle, title, StringComparison.Ordinal) ||
+            !string.Equals(beforeBody, body, StringComparison.Ordinal);
 
-        var assigneesChanged = false;
+        var assigneeDiff = new AssigneeDiff(Array.Empty<Guid>(), Array.Empty<Guid>());
         if (eligibleAssignees is not null)
-            assigneesChanged = await ApplyAssigneeSetAsync(ticket.Id, eligibleAssignees, ct);
+            assigneeDiff = await ApplyAssigneeSetAsync(ticket.Id, eligibleAssignees, ct);
 
         if (changed)
         {
@@ -379,11 +442,70 @@ public sealed class TicketService
             ticket.ModifiedAt = _clock.UtcNow; // assignment change alone never bumps modified_at (§4.2)
         }
 
-        if (changed || assigneesChanged)
+        if (changed || assigneeDiff.Changed)
             await _db.SaveChangesAsync(ct);
+
+        // Publish AFTER commit (§6.2). One ticket_field_changed per changed scalar; ticket_moved for a
+        // state change (its own event); ticket_assignees_changed when the set changed. The actor is
+        // never notified about their own action (fan-out excludes the actor).
+        if (changed || assigneeDiff.Changed)
+        {
+            var actorId = _currentUser.RequireUserId();
+            var actor = await ResolveActorDisplayNameAsync(actorId, ct);
+            var events = new List<TicketEvent>();
+
+            if (changed)
+            {
+                if (beforeState != state)
+                    events.Add(new TicketEvent(EventType.TicketMoved, ticket.Id, actorId, null,
+                        EventSummaries.MovedData(beforeState, state),
+                        EventSummaries.TicketMoved(actor, beforeState, state),
+                        EventSummaries.TicketMoved(actor, beforeState, state)));
+
+                AddFieldChangedIf(events, ticket.Id, actorId, actor, "title",
+                    !string.Equals(beforeTitle, title, StringComparison.Ordinal), beforeTitle, title);
+                AddFieldChangedIf(events, ticket.Id, actorId, actor, "description",
+                    !string.Equals(beforeBody, body, StringComparison.Ordinal), Truncate(beforeBody), Truncate(body));
+                AddFieldChangedIf(events, ticket.Id, actorId, actor, "type",
+                    beforeType != type, EventSummaries.TypeLabel(beforeType), EventSummaries.TypeLabel(type),
+                    EnumCanonical.ToCanonical(beforeType), EnumCanonical.ToCanonical(type));
+                AddFieldChangedIf(events, ticket.Id, actorId, actor, "priority",
+                    beforePriority != priority, EventSummaries.PriorityLabel(beforePriority), EventSummaries.PriorityLabel(priority),
+                    EnumCanonical.ToCanonical(beforePriority), EnumCanonical.ToCanonical(priority));
+                AddFieldChangedIf(events, ticket.Id, actorId, actor, "due_date",
+                    beforeDueDate != request.DueDate, FormatDate(beforeDueDate), FormatDate(request.DueDate));
+                AddFieldChangedIf(events, ticket.Id, actorId, actor, "epic",
+                    beforeEpicId != newEpicId, beforeEpicId?.ToString(), newEpicId?.ToString());
+                AddFieldChangedIf(events, ticket.Id, actorId, actor, "team",
+                    beforeTeamId != teamId, beforeTeamId.ToString(), teamId.ToString());
+            }
+
+            if (assigneeDiff.Changed)
+                events.Add(BuildAssigneesEvent(ticket.Id, actorId, actor, assigneeDiff));
+
+            await _publisher.PublishAsync(events, ct);
+        }
 
         return await GetByIdAsync(ticket.Id, ct);
     }
+
+    /// <summary>Append a ticket_field_changed event when the field actually changed (§6.1).</summary>
+    private static void AddFieldChangedIf(
+        List<TicketEvent> events, Guid ticketId, Guid actorId, string actor, string field,
+        bool didChange, string? fromDisplay, string? toDisplay, string? fromCanonical = null, string? toCanonical = null)
+    {
+        if (!didChange)
+            return;
+        var summary = EventSummaries.FieldChanged(actor, field, fromDisplay, toDisplay);
+        var data = EventSummaries.FieldChangedData(field, fromCanonical ?? fromDisplay, toCanonical ?? toDisplay);
+        events.Add(new TicketEvent(EventType.TicketFieldChanged, ticketId, actorId, null, data, summary, summary));
+    }
+
+    private static string? FormatDate(DateOnly? date) => date?.ToString("yyyy-MM-dd");
+
+    /// <summary>Keep long text out of the rendered summary (title/description); the summary is a one-liner.</summary>
+    private static string Truncate(string value, int max = 60)
+        => value.Length <= max ? value : value[..max] + "…";
 
     // ----- Set assignees (API_CONTRACT §4.2) -----
 
@@ -406,9 +528,45 @@ public sealed class TicketService
         var desired = await ResolveEligibleAssigneesAsync(request.UserIds ?? Array.Empty<Guid>(), ticket.TeamId, ct)
             ?? new HashSet<Guid>();
 
-        var changed = await ApplyAssigneeSetAsync(ticket.Id, desired, ct);
-        if (changed)
+        var diff = await ApplyAssigneeSetAsync(ticket.Id, desired, ct);
+        if (diff.Changed)
+        {
             await _db.SaveChangesAsync(ct); // no modified_at bump (§4.2)
+
+            // Publish AFTER commit (§6.2): ticket_assignees_changed. Newly-added assignees were
+            // auto-watched inside ApplyAssigneeSetAsync; the actor is excluded at fan-out.
+            var actorId = _currentUser.RequireUserId();
+            var actor = await ResolveActorDisplayNameAsync(actorId, ct);
+            await _publisher.PublishAsync(new[] { BuildAssigneesEvent(ticket.Id, actorId, actor, diff) }, ct);
+        }
+
+        return await GetByIdAsync(ticket.Id, ct);
+    }
+
+    // ----- Set labels (API_CONTRACT §5.7, ADR-0016) -----
+
+    /// <summary>
+    /// Full-set replace of a ticket's labels (Wave 2, ADR-0016). Structural twin of
+    /// <see cref="SetAssigneesAsync"/>: resolve-then-check the ticket's team (404 then 403), then validate
+    /// each requested label id as a body reference — must exist AND belong to the TICKET'S TEAM, else 400
+    /// keyed <c>labelIds</c>. De-duplicates, diffs against the current set (add new, remove absent) and does
+    /// NOT advance <c>modified_at</c> (labels are metadata, §5.7). Raises NO event (W2-LABEL-NOEVENTS).
+    /// Returns the updated ticket detail (carrying the new <c>labels[]</c>).
+    /// </summary>
+    public async Task<TicketDetailDto> SetLabelsAsync(Guid id, SetLabelsRequest request, CancellationToken ct)
+    {
+        var ticket = await _db.Tickets.FirstOrDefaultAsync(t => t.Id == id, ct)
+            ?? throw ServiceException.NotFound("Ticket not found.");
+        // Resolve-then-check on the ticket's team before touching labels (IDOR guard, §3.3).
+        _currentUser.RequireTeamAccess(ticket.TeamId);
+
+        // A null/omitted labelIds means "clear to the empty set" (authoritative full set); a non-null set
+        // is validated as body references against the ticket's team (400 keyed labelIds).
+        var desired = await ResolveTeamLabelsAsync(request.LabelIds ?? Array.Empty<Guid>(), ticket.TeamId, ct);
+
+        var changed = await ApplyLabelSetAsync(ticket.Id, desired, ct);
+        if (changed)
+            await _db.SaveChangesAsync(ct); // no modified_at bump (§5.7); no event (W2-LABEL-NOEVENTS)
 
         return await GetByIdAsync(ticket.Id, ct);
     }
@@ -429,10 +587,21 @@ public sealed class TicketService
         // never blocked by a WIP cap; only a real move into a different (capped) state is checked (UX §4.2).
         if (ticket.State != state)
         {
+            var fromState = ticket.State;
             await EnforceWipLimitAsync(ticket.TeamId, state, ticket.TeamId, ticket.State, ct);
             ticket.State = state;
             ticket.ModifiedAt = _clock.UtcNow;
             await _db.SaveChangesAsync(ct);
+
+            // Publish AFTER commit (§6.2): ticket_moved (its own event).
+            var actorId = _currentUser.RequireUserId();
+            var actor = await ResolveActorDisplayNameAsync(actorId, ct);
+            var summary = EventSummaries.TicketMoved(actor, fromState, state);
+            await _publisher.PublishAsync(new[]
+            {
+                new TicketEvent(EventType.TicketMoved, ticket.Id, actorId, null,
+                    EventSummaries.MovedData(fromState, state), summary, summary)
+            }, ct);
         }
 
         return new TicketStateDto(ticket.Id, EnumCanonical.ToCanonical(ticket.State), ticket.ModifiedAt);
@@ -447,8 +616,22 @@ public sealed class TicketService
         // Resolve-then-check on the ticket's team before deleting (IDOR guard, §3.3).
         _currentUser.RequireTeamAccess(ticket.TeamId);
 
-        // Comments and assignees cascade at the DB (V22 / ADR-0009). Explicitly remove tracked rows too
-        // so the SQLite test provider (which honors FK cascade) and PG behave identically.
+        // Publish ticket_deleted BEFORE removing the ticket (§6.6): NotificationFanout writes rows that
+        // still point at the LIVE ticket id; the SET-NULL FK then nulls those fresh notifications' ticket_id
+        // when the ticket row is removed below, so a ticket_deleted notification OUTLIVES its ticket
+        // (tombstone). ticket_deleted writes NO activity entry (its activity cascades away, §6.1).
+        var actorId = _currentUser.RequireUserId();
+        var actor = await ResolveActorDisplayNameAsync(actorId, ct);
+        var summary = EventSummaries.TicketDeleted(actor, ticket.Title);
+        await _publisher.PublishAsync(new[]
+        {
+            new TicketEvent(EventType.TicketDeleted, ticket.Id, actorId, null,
+                EventSummaries.TitleData(ticket.Title), summary, summary)
+        }, ct);
+
+        // Comments, assignees and watchers cascade at the DB (V22 / ADR-0009 / ADR-0013). Explicitly
+        // remove tracked rows too so the SQLite test provider (which honors FK cascade) and PG behave
+        // identically. Notifications for this ticket are NOT removed — their ticket_id SET-NULLs (§6.6).
         var comments = await _db.Comments.Where(c => c.TicketId == id).ToListAsync(ct);
         if (comments.Count > 0)
             _db.Comments.RemoveRange(comments);
@@ -456,6 +639,20 @@ public sealed class TicketService
         var assignees = await _db.TicketAssignees.Where(a => a.TicketId == id).ToListAsync(ct);
         if (assignees.Count > 0)
             _db.TicketAssignees.RemoveRange(assignees);
+
+        var watchers = await _db.TicketWatchers.Where(w => w.TicketId == id).ToListAsync(ct);
+        if (watchers.Count > 0)
+            _db.TicketWatchers.RemoveRange(watchers);
+
+        // Labels tags cascade with the ticket (§4.8); explicitly remove for provider parity.
+        var ticketLabels = await _db.TicketLabels.Where(tl => tl.TicketId == id).ToListAsync(ct);
+        if (ticketLabels.Count > 0)
+            _db.TicketLabels.RemoveRange(ticketLabels);
+
+        // Activity entries cascade with the ticket (§6.1); explicitly remove for provider parity.
+        var activity = await _db.ActivityEntries.Where(a => a.TicketId == id).ToListAsync(ct);
+        if (activity.Count > 0)
+            _db.ActivityEntries.RemoveRange(activity);
 
         _db.Tickets.Remove(ticket);
         await _db.SaveChangesAsync(ct);
@@ -471,6 +668,24 @@ public sealed class TicketService
     {
         var trimmed = name?.Trim();
         return string.IsNullOrEmpty(trimmed) ? email : trimmed;
+    }
+
+    /// <summary>Resolve the actor's display name once for rendering event summaries (§6.1).</summary>
+    private async Task<string> ResolveActorDisplayNameAsync(Guid actorId, CancellationToken ct)
+    {
+        var actor = await _db.Users.AsNoTracking()
+            .Where(u => u.Id == actorId)
+            .Select(u => new { u.Name, u.Email })
+            .FirstOrDefaultAsync(ct);
+        return DisplayName(actor?.Name, actor?.Email ?? string.Empty);
+    }
+
+    /// <summary>Build the ticket_assignees_changed event from an <see cref="AssigneeDiff"/> (§6.1).</summary>
+    private static TicketEvent BuildAssigneesEvent(Guid ticketId, Guid actorId, string actor, AssigneeDiff diff)
+    {
+        var data = EventSummaries.AssigneesData(diff.Added, diff.Removed);
+        var summary = EventSummaries.AssigneesChanged(actor, diff.Added.Count, diff.Removed.Count);
+        return new TicketEvent(EventType.TicketAssigneesChanged, ticketId, actorId, null, data, summary, summary);
     }
 
     /// <summary>isOverdue = dueDate != null &amp;&amp; dueDate &lt; today(UTC) &amp;&amp; state != done (§3.3).</summary>
@@ -515,25 +730,33 @@ public sealed class TicketService
         return unique;
     }
 
+    /// <summary>The added/removed assignee ids resulting from a full-set replace (§6.5 fan-out data).</summary>
+    private readonly record struct AssigneeDiff(IReadOnlyCollection<Guid> Added, IReadOnlyCollection<Guid> Removed)
+    {
+        public bool Changed => Added.Count > 0 || Removed.Count > 0;
+    }
+
     /// <summary>
     /// Diffs <paramref name="desired"/> against the ticket's current assignees: inserts the additions,
-    /// removes the ones no longer present, leaves the rest. Returns true if anything changed. Does NOT
-    /// save (the caller controls the transaction) and never bumps modified_at (§4.2). This is the single
-    /// choke point Wave 2 hooks for added/removed notification fan-out (§6.5).
+    /// removes the ones no longer present, leaves the rest. Also auto-watches every newly-added assignee
+    /// (§6.3, inside the same transaction) so a just-added assignee receives SUBSEQUENT events. Returns
+    /// the added/removed sets. Does NOT save (the caller controls the transaction) and never bumps
+    /// modified_at (§4.2). This is the single choke point Wave 2 hooks for assignee notification fan-out.
     /// </summary>
-    private async Task<bool> ApplyAssigneeSetAsync(Guid ticketId, HashSet<Guid> desired, CancellationToken ct)
+    private async Task<AssigneeDiff> ApplyAssigneeSetAsync(Guid ticketId, HashSet<Guid> desired, CancellationToken ct)
     {
         var existing = await _db.TicketAssignees.Where(a => a.TicketId == ticketId).ToListAsync(ct);
         var existingUserIds = existing.Select(a => a.UserId).ToHashSet();
 
-        var changed = false;
+        var added = new List<Guid>();
+        var removed = new List<Guid>();
         var now = _clock.UtcNow;
 
         foreach (var row in existing)
             if (!desired.Contains(row.UserId))
             {
                 _db.TicketAssignees.Remove(row);
-                changed = true;
+                removed.Add(row.UserId);
             }
 
         foreach (var userId in desired)
@@ -544,6 +767,76 @@ public sealed class TicketService
                     Id = Guid.NewGuid(),
                     TicketId = ticketId,
                     UserId = userId,
+                    CreatedAt = now
+                });
+                added.Add(userId);
+                // Auto-watch the newly-added assignee (§6.3).
+                await WatchService.AddWatch(_db, ticketId, userId, now, ct);
+            }
+
+        return new AssigneeDiff(added, removed);
+    }
+
+    /// <summary>
+    /// Resolve the requested label ids to a validated, de-duplicated set for the ticket's team (Wave 2,
+    /// §5.7). Each id must reference an existing label that BELONGS TO <paramref name="teamId"/>; an unknown
+    /// OR cross-team id ⇒ 400 validation_error keyed <c>labelIds</c> (a bad body reference → 400, ADR-0006 §B).
+    /// An empty request is the authoritative empty set (clear all).
+    /// </summary>
+    private async Task<HashSet<Guid>> ResolveTeamLabelsAsync(
+        IReadOnlyList<Guid> requested, Guid teamId, CancellationToken ct)
+    {
+        var unique = new HashSet<Guid>();
+        foreach (var labelId in requested)
+            if (labelId != Guid.Empty)
+                unique.Add(labelId);
+
+        if (unique.Count == 0)
+            return unique; // authoritative empty set (clear all)
+
+        // Eligible = labels of THIS ticket's team (one round-trip). Any id that is unknown or from another
+        // team is not returned, so a count mismatch ⇒ 400 (mirrors assignee eligibility).
+        var eligible = await _db.Labels
+            .Where(l => unique.Contains(l.Id) && l.TeamId == teamId)
+            .Select(l => l.Id)
+            .ToListAsync(ct);
+
+        if (eligible.Count != unique.Count)
+            throw ServiceException.Validation("labelIds",
+                "One or more labels do not exist or belong to another team.");
+
+        return unique;
+    }
+
+    /// <summary>
+    /// Diffs <paramref name="desired"/> against the ticket's current labels: inserts the additions, removes
+    /// the ones no longer present, leaves the rest (Wave 2, §5.7). Returns true if anything changed. Does NOT
+    /// save (the caller controls the transaction) and never bumps modified_at (§5.7). Structural twin of
+    /// <see cref="ApplyAssigneeSetAsync"/>.
+    /// </summary>
+    private async Task<bool> ApplyLabelSetAsync(Guid ticketId, HashSet<Guid> desired, CancellationToken ct)
+    {
+        var existing = await _db.TicketLabels.Where(tl => tl.TicketId == ticketId).ToListAsync(ct);
+        var existingLabelIds = existing.Select(tl => tl.LabelId).ToHashSet();
+
+        var changed = false;
+        var now = _clock.UtcNow;
+
+        foreach (var row in existing)
+            if (!desired.Contains(row.LabelId))
+            {
+                _db.TicketLabels.Remove(row);
+                changed = true;
+            }
+
+        foreach (var labelId in desired)
+            if (!existingLabelIds.Contains(labelId))
+            {
+                _db.TicketLabels.Add(new TicketLabel
+                {
+                    Id = Guid.NewGuid(),
+                    TicketId = ticketId,
+                    LabelId = labelId,
                     CreatedAt = now
                 });
                 changed = true;
@@ -609,7 +902,7 @@ public sealed class TicketService
 
     private TicketDetailDto ToDetail(
         Ticket t, string? epicTitle, string createdByEmail, string? createdByName,
-        IReadOnlyList<AssigneeRefDto> assignees)
+        IReadOnlyList<AssigneeRefDto> assignees, bool isWatching, IReadOnlyList<LabelRefDto> labels)
         => new(
             t.Id,
             t.TeamId,
@@ -627,5 +920,7 @@ public sealed class TicketService
             t.ModifiedAt,
             t.CreatedBy,
             createdByEmail,
-            createdByName);
+            createdByName,
+            isWatching,
+            labels);
 }

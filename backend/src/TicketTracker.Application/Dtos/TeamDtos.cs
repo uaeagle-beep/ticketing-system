@@ -19,6 +19,17 @@ public sealed record TeamDto(
     IReadOnlyDictionary<string, int?> WipLimits);
 
 /// <summary>
+/// A team member for the member-visible picker (Wave-1 debt, WAVE2 §5.8 / ADR-0017). Returned by
+/// GET /api/teams/{id}/members to any member of the team (or an admin). DisplayName is computed
+/// server-side as <c>name?.Trim() || email</c>. Exposes displayName + isAdmin only — no email beyond
+/// what displayName surfaces, no status/blocked flags (those stay admin-only).
+/// </summary>
+public sealed record TeamMemberDto(
+    Guid Id,
+    string DisplayName,
+    bool IsAdmin);
+
+/// <summary>
 /// Body of PUT /api/teams/{id}/wip-limits: a map of canonical state -> limit. A value of null
 /// (or an omitted state) means "no limit". An integer must be in [1, 999]; anything else (0, negative,
 /// fractional, non-numeric, out of range, unknown state key) is rejected with 400 validation_error and

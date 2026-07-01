@@ -204,5 +204,6 @@ public sealed class DefaultTeamProvisioningRaceTests : IDisposable
     {
         public Task SendVerificationEmailAsync(string toEmail, string verificationLink, CancellationToken ct) => Task.CompletedTask;
         public Task SendPasswordResetEmailAsync(string toEmail, string resetLink, CancellationToken ct) => Task.CompletedTask;
+        public Task SendNotificationDigestEmailAsync(string toEmail, IReadOnlyList<string> lines, string deepLinkBase, CancellationToken ct) => Task.CompletedTask;
     }
 }

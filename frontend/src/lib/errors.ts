@@ -26,6 +26,8 @@ const FRIENDLY: Record<string, string> = {
   account_blocked: 'This account has been blocked. Contact an administrator.',
   last_admin_required: 'The system must keep at least one active administrator.',
   email_in_use: 'A user with this email already exists.',
+  // Labels (Wave 2, ADR-0016).
+  duplicate_label_name: 'A label with this name already exists in this team.',
 };
 
 export function errorMessage(err: unknown): string {

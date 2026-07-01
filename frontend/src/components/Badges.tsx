@@ -1,5 +1,6 @@
-import type { AssigneeRef, TicketPriority, TicketType } from '@/api/types';
+import type { AssigneeRef, LabelRef, TicketPriority, TicketType } from '@/api/types';
 import { priorityLabel, typeLabel } from '@/lib/labels';
+import { readableTextColor } from '@/lib/color';
 import { formatDueDate } from '@/lib/time';
 
 // Type badge shown on cards and in lists (Wireframe 1, UPPERCASE).
@@ -56,6 +57,32 @@ export function AssigneeAvatars({
           +{extra}
         </span>
       ) : null}
+    </span>
+  );
+}
+
+// A colored label chip (Wave 2, ADR-0016). The label text (never color alone) conveys the value; the
+// text color is chosen for >= WCAG contrast against the chosen background (readableTextColor).
+export function LabelChip({ label }: { label: LabelRef }) {
+  return (
+    <span
+      className="label-chip"
+      style={{ backgroundColor: label.color, color: readableTextColor(label.color) }}
+      title={label.name}
+    >
+      {label.name}
+    </span>
+  );
+}
+
+// A row of label chips (on cards and the ticket detail). Renders nothing when empty.
+export function LabelChips({ labels }: { labels: LabelRef[] }) {
+  if (labels.length === 0) return null;
+  return (
+    <span className="label-chips" aria-label={`Labels: ${labels.map((l) => l.name).join(', ')}`}>
+      {labels.map((l) => (
+        <LabelChip key={l.id} label={l} />
+      ))}
     </span>
   );
 }

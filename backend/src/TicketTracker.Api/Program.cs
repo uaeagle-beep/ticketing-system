@@ -40,6 +40,15 @@ builder.Services.Configure<AuthOptions>(o =>
     o.DefaultSignupTeamName = config.GetValue("DEFAULT_SIGNUP_TEAM_NAME", "Demo Team") ?? "Demo Team";
 });
 
+builder.Services.Configure<NotificationOptions>(o =>
+{
+    var config = builder.Configuration;
+    o.WorkerPollSeconds = config.GetValue("NOTIFICATION_WORKER_POLL_SECONDS", 15);
+    o.EmailDebounceSeconds = config.GetValue("NOTIFICATION_EMAIL_DEBOUNCE_SECONDS", 60);
+    o.EmailEnabled = config.GetValue("NOTIFICATIONS_EMAIL_ENABLED", true);
+    o.FrontendUrl = config.GetValue("FRONTEND_URL", "http://localhost:8080") ?? "http://localhost:8080";
+});
+
 builder.Services.Configure<SmtpOptions>(o =>
 {
     var config = builder.Configuration;
@@ -73,6 +82,10 @@ builder.Services.AddScoped<ICurrentUser>(sp => sp.GetRequiredService<CurrentUser
 // ---------- DB readiness + migration hosted service (ADR-0003) ----------
 builder.Services.AddSingleton<DatabaseReadinessState>();
 builder.Services.AddHostedService<DatabaseInitializer>();
+
+// ---------- Notification email outbox worker (ADR-0014). Thin timer over DrainOnceAsync; the test
+// factory REMOVES this hosted service so no timer fires during tests (§7.5). ----------
+builder.Services.AddHostedService<NotificationEmailWorker>();
 
 // ---------- CORS (SCT-001 / AUTH-006) ----------
 // Development: permissive policy for direct API testing.

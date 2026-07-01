@@ -4,10 +4,11 @@
 //    stays valid and all other devices are signed out; a wrong current password maps to a field error.
 
 import { useState, type FormEvent } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { meApi } from '@/api/endpoints';
 import type { AuthUser } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
+import { queryKeys } from '@/lib/queryKeys';
 import { errorMessage, isApiErrorCode } from '@/lib/errors';
 import { useToast } from '@/components/toast/ToastContext';
 
@@ -74,6 +75,29 @@ export function AccountPage() {
       }
     },
   });
+
+  // ---- Notification settings (email toggle, Wave 2 §6.8) ----
+  const queryClient = useQueryClient();
+  const settingsQuery = useQuery({
+    queryKey: queryKeys.notificationSettings,
+    queryFn: ({ signal }) => meApi.getNotificationSettings(signal),
+  });
+
+  const settingsMutation = useMutation({
+    mutationFn: (enabled: boolean) =>
+      meApi.updateNotificationSettings({ emailNotificationsEnabled: enabled }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.notificationSettings, updated);
+      toast.showSuccess(
+        updated.emailNotificationsEnabled
+          ? 'Email notifications turned on.'
+          : 'Email notifications turned off.',
+      );
+    },
+    onError: (err) => toast.showError(errorMessage(err)),
+  });
+
+  const emailEnabled = settingsQuery.data?.emailNotificationsEnabled ?? true;
 
   const submitPassword = (e: FormEvent) => {
     e.preventDefault();
@@ -173,6 +197,23 @@ export function AccountPage() {
             </button>
           </div>
         </form>
+      </section>
+
+      <section className="panel" style={{ marginTop: 20 }}>
+        <h2 style={{ fontSize: 16, marginBottom: 12 }}>Notifications</h2>
+        <p className="muted" style={{ marginBottom: 12 }}>
+          In-app notifications are always on. This controls whether we also email you a digest of
+          updates on tickets you watch.
+        </p>
+        <label className="row" style={{ gap: 8, alignItems: 'center' }}>
+          <input
+            type="checkbox"
+            checked={emailEnabled}
+            onChange={(e) => settingsMutation.mutate(e.target.checked)}
+            disabled={settingsQuery.isLoading || settingsMutation.isPending}
+          />
+          <span>Email me notification digests</span>
+        </label>
       </section>
     </div>
   );

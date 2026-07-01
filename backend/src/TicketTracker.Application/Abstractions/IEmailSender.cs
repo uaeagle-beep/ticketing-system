@@ -15,4 +15,14 @@ public interface IEmailSender
     /// token issuance — the caller swallows it with a warning (never logging the token).
     /// </summary>
     Task SendPasswordResetEmailAsync(string toEmail, string resetLink, CancellationToken ct);
+
+    /// <summary>
+    /// Sends ONE coalesced notification digest to a recipient (Wave 2, ADR-0014). Called by the email
+    /// outbox worker with all of the recipient's pending notification <paramref name="lines"/> (already
+    /// rendered summaries), so a burst of events within the debounce window becomes a single email.
+    /// <paramref name="deepLinkBase"/> is the SPA base URL used to build a "view notifications" link.
+    /// A send failure surfaces to the dispatcher, which isolates the failing recipient (per-recipient
+    /// try/catch) and retries their rows next tick.
+    /// </summary>
+    Task SendNotificationDigestEmailAsync(string toEmail, IReadOnlyList<string> lines, string deepLinkBase, CancellationToken ct);
 }

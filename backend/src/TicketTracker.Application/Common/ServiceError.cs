@@ -40,6 +40,9 @@ public enum ServiceErrorCode
     /// <summary>409 — team create/rename collides case-insensitively.</summary>
     DuplicateTeamName,
 
+    /// <summary>409 — label create/rename collides case-insensitively within the team (ADR-0016).</summary>
+    DuplicateLabelName,
+
     /// <summary>409 — delete team that has tickets or epics.</summary>
     TeamHasChildren,
 
@@ -73,6 +76,7 @@ public static class ServiceErrorCodes
         ServiceErrorCode.EmailInUse => "email_in_use",
         ServiceErrorCode.NotFound => "not_found",
         ServiceErrorCode.DuplicateTeamName => "duplicate_team_name",
+        ServiceErrorCode.DuplicateLabelName => "duplicate_label_name",
         ServiceErrorCode.TeamHasChildren => "team_has_children",
         ServiceErrorCode.EpicReferencedByTickets => "epic_referenced_by_tickets",
         ServiceErrorCode.WipLimitReached => "wip_limit_reached",

@@ -17,6 +17,11 @@ public sealed class TeamsController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<TeamDto>>> List(CancellationToken ct)
         => Ok(await _teams.ListAsync(ct));
 
+    // ----- Members (member-visible picker; Wave-1 debt, API_CONTRACT §4 / ADR-0017) -----
+    [HttpGet("{id:guid}/members")]
+    public async Task<ActionResult<IReadOnlyList<TeamMemberDto>>> Members(Guid id, CancellationToken ct)
+        => Ok(await _teams.ListMembersAsync(id, ct));
+
     [HttpPost]
     public async Task<ActionResult<TeamDto>> Create([FromBody] CreateTeamRequest request, CancellationToken ct)
     {

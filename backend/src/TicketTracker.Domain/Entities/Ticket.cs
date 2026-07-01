@@ -46,4 +46,10 @@ public class Ticket
 
     /// <summary>Assignees (F-02, M:N via <see cref="TicketAssignee"/>). Cascade-deleted with the ticket.</summary>
     public ICollection<TicketAssignee> Assignees { get; set; } = new List<TicketAssignee>();
+
+    /// <summary>Watchers (Wave 2, M:N via <see cref="TicketWatcher"/>). Cascade-deleted with the ticket.</summary>
+    public ICollection<TicketWatcher> Watchers { get; set; } = new List<TicketWatcher>();
+
+    /// <summary>Labels/tags (Wave 2, M:N via <see cref="TicketLabel"/>). Cascade-deleted with the ticket.</summary>
+    public ICollection<TicketLabel> Labels { get; set; } = new List<TicketLabel>();
 }

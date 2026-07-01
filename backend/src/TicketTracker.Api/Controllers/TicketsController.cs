@@ -14,11 +14,15 @@ public sealed class TicketsController : ControllerBase
 {
     private readonly TicketService _tickets;
     private readonly CommentService _comments;
+    private readonly WatchService _watch;
+    private readonly ActivityService _activity;
 
-    public TicketsController(TicketService tickets, CommentService comments)
+    public TicketsController(TicketService tickets, CommentService comments, WatchService watch, ActivityService activity)
     {
         _tickets = tickets;
         _comments = comments;
+        _watch = watch;
+        _activity = activity;
     }
 
     // ----- Board / list (§6.1) -----
@@ -32,9 +36,10 @@ public sealed class TicketsController : ControllerBase
         [FromQuery] Guid? assigneeId,
         [FromQuery] bool assignedToMe,
         [FromQuery] string? dueFilter,
+        [FromQuery] Guid? labelId,
         CancellationToken ct)
         => Ok(await _tickets.GetBoardAsync(
-            teamId, type, epicId, search, priority, assigneeId, assignedToMe, dueFilter, ct));
+            teamId, type, epicId, search, priority, assigneeId, assignedToMe, dueFilter, labelId, ct));
 
     // ----- Detail (§6.2) -----
     [HttpGet("{id:guid}")]
@@ -66,6 +71,11 @@ public sealed class TicketsController : ControllerBase
     public async Task<ActionResult<TicketDetailDto>> SetAssignees(Guid id, [FromBody] SetAssigneesRequest request, CancellationToken ct)
         => Ok(await _tickets.SetAssigneesAsync(id, request ?? new SetAssigneesRequest(null), ct));
 
+    // ----- Labels full-set replace (Wave 2, §5.7, ADR-0016) — M(team of ticket) -----
+    [HttpPut("{id:guid}/labels")]
+    public async Task<ActionResult<TicketDetailDto>> SetLabels(Guid id, [FromBody] SetLabelsRequest request, CancellationToken ct)
+        => Ok(await _tickets.SetLabelsAsync(id, request ?? new SetLabelsRequest(null), ct));
+
     // ----- Delete (§6.6) -----
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
@@ -85,4 +95,23 @@ public sealed class TicketsController : ControllerBase
         var comment = await _comments.AddAsync(id, request ?? new CreateCommentRequest(null), ct);
         return StatusCode(StatusCodes.Status201Created, comment);
     }
+
+    // ----- Watchers (Wave 2, §5.4) — M(team of ticket) -----
+    [HttpGet("{id:guid}/watchers")]
+    public async Task<ActionResult<WatchersDto>> Watchers(Guid id, CancellationToken ct)
+        => Ok(await _watch.ListWatchersAsync(id, ct));
+
+    [HttpPost("{id:guid}/watch")]
+    public async Task<ActionResult<WatchStatusDto>> Watch(Guid id, CancellationToken ct)
+        => Ok(await _watch.WatchAsync(id, ct));
+
+    [HttpDelete("{id:guid}/watch")]
+    public async Task<ActionResult<WatchStatusDto>> Unwatch(Guid id, CancellationToken ct)
+        => Ok(await _watch.UnwatchAsync(id, ct));
+
+    // ----- Activity timeline (Wave 2, §5.5) — M(team of ticket) -----
+    [HttpGet("{id:guid}/activity")]
+    public async Task<ActionResult<ActivityListDto>> Activity(
+        Guid id, [FromQuery] int? limit, [FromQuery] string? cursor, CancellationToken ct)
+        => Ok(await _activity.ListAsync(id, limit, cursor, ct));
 }

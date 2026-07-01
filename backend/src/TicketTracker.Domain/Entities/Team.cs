@@ -26,4 +26,7 @@ public class Team
 
     /// <summary>Memberships granting users access to this team (ADR-0007).</summary>
     public ICollection<UserTeam> Members { get; set; } = new List<UserTeam>();
+
+    /// <summary>Team-scoped labels/tags (Wave 2, ADR-0016). Cascade-deleted with the team (pure metadata).</summary>
+    public ICollection<Label> Labels { get; set; } = new List<Label>();
 }

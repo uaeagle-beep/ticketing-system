@@ -28,6 +28,11 @@ public sealed class AppDbContext : DbContext, IAppDbContext
     public DbSet<WipLimit> WipLimits => Set<WipLimit>();
     public DbSet<UserTeam> UserTeams => Set<UserTeam>();
     public DbSet<TicketAssignee> TicketAssignees => Set<TicketAssignee>();
+    public DbSet<TicketWatcher> TicketWatchers => Set<TicketWatcher>();
+    public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<ActivityEntry> ActivityEntries => Set<ActivityEntry>();
+    public DbSet<Label> Labels => Set<Label>();
+    public DbSet<TicketLabel> TicketLabels => Set<TicketLabel>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -59,6 +64,11 @@ public sealed class AppDbContext : DbContext, IAppDbContext
             // Authorization flags (ADR-0007). Default false so Npgsql and SQLite agree (ADR-0008).
             e.Property(x => x.IsAdmin).HasColumnName("is_admin").IsRequired().HasDefaultValue(false);
             e.Property(x => x.IsBlocked).HasColumnName("is_blocked").IsRequired().HasDefaultValue(false);
+            // Wave 2 (§4.7): global email-notifications toggle. Store default is semantically permanent
+            // (unlike Wave-1's priming-only priority default), so keep .HasDefaultValue(true) on the model
+            // — this backfills existing rows AND keeps has-pending-model-changes clean.
+            e.Property(x => x.EmailNotificationsEnabled)
+                .HasColumnName("email_notifications_enabled").IsRequired().HasDefaultValue(true);
             e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
             e.HasIndex(x => x.EmailNormalized).IsUnique(); // case-insensitive uniqueness key (V1)
         });
@@ -256,6 +266,8 @@ public sealed class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.AuthorId).HasColumnName("author_id").IsRequired();
             e.Property(x => x.Body).IsRequired();
             e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            // F-12 (WAVE2 §4.6): null = never edited; set on a real body change by CommentService.EditAsync.
+            e.Property(x => x.EditedAt).HasColumnName("edited_at");
             e.HasIndex(x => new { x.TicketId, x.CreatedAt }).HasDatabaseName("ix_comments_ticket_created");
 
             e.HasOne(x => x.Ticket)
@@ -289,6 +301,144 @@ public sealed class AppDbContext : DbContext, IAppDbContext
                 .WithMany()
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Restrict); // protect user integrity (mirrors created_by/author_id)
+        });
+
+        // Single source of truth for the event_type CHECK on notifications + activity_entries (§6.1).
+        var eventTypeCheck = $"event_type IN ({EventTypeCanonical.CheckConstraintValues()})";
+
+        // ---------- TicketWatcher (subscription join — like TicketAssignee, but BOTH FKs CASCADE) ----------
+        b.Entity<TicketWatcher>(e =>
+        {
+            e.ToTable("ticket_watchers");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.TicketId).HasColumnName("ticket_id").IsRequired();
+            e.Property(x => x.UserId).HasColumnName("user_id").IsRequired();
+            e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            // No double-watch (INV): unique (ticket_id, user_id).
+            e.HasIndex(x => new { x.TicketId, x.UserId }).IsUnique().HasDatabaseName("ux_ticket_watchers_ticket_user");
+            e.HasIndex(x => x.UserId); // "my watched tickets" (possible later)
+            e.HasOne(x => x.Ticket)
+                .WithMany(t => t.Watchers)
+                .HasForeignKey(x => x.TicketId)
+                .OnDelete(DeleteBehavior.Cascade); // a watch is owned by the ticket
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade); // a watch carries no authorship (mirrors UserTeam)
+        });
+
+        // ---------- Notification (in-app + email outbox row) ----------
+        b.Entity<Notification>(e =>
+        {
+            e.ToTable("notifications", t =>
+            {
+                t.HasCheckConstraint("ck_notifications_event_type", eventTypeCheck);
+            });
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.RecipientId).HasColumnName("recipient_id").IsRequired();
+            e.Property(x => x.ActorId).HasColumnName("actor_id").IsRequired();
+            // NULLABLE ticket_id with ON DELETE SET NULL: a ticket_deleted notification OUTLIVES its
+            // ticket (§6.6). THIS IS THE KEY SCHEMA SUBTLETY — NOT CASCADE.
+            e.Property(x => x.TicketId).HasColumnName("ticket_id");
+            // FK-less by design (§4.3): a comment delete must neither cascade-nuke nor block the row.
+            e.Property(x => x.CommentId).HasColumnName("comment_id");
+            e.Property(x => x.EventType).HasColumnName("event_type").HasMaxLength(40).IsRequired();
+            e.Property(x => x.Summary).HasMaxLength(500).IsRequired();
+            e.Property(x => x.DataJson).HasColumnName("data_json");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            e.Property(x => x.ReadAt).HasColumnName("read_at");
+            e.Property(x => x.EmailedAt).HasColumnName("emailed_at");
+
+            // "my notifications newest-first" and "my unread count".
+            e.HasIndex(x => new { x.RecipientId, x.ReadAt, x.CreatedAt })
+                .HasDatabaseName("ix_notifications_recipient_unread");
+            // The outbox scan: WHERE emailed_at IS NULL AND created_at <= cutoff.
+            e.HasIndex(x => new { x.EmailedAt, x.CreatedAt })
+                .HasDatabaseName("ix_notifications_outbox");
+
+            e.HasOne(x => x.Recipient)
+                .WithMany()
+                .HasForeignKey(x => x.RecipientId)
+                .OnDelete(DeleteBehavior.Cascade); // a notification is owned by its recipient
+            e.HasOne(x => x.Actor)
+                .WithMany()
+                .HasForeignKey(x => x.ActorId)
+                .OnDelete(DeleteBehavior.Restrict); // preserve "who did it" (mirrors created_by/author_id)
+            e.HasOne(x => x.Ticket)
+                .WithMany()
+                .HasForeignKey(x => x.TicketId)
+                .OnDelete(DeleteBehavior.SetNull); // a ticket_deleted notification survives its ticket (§6.6)
+            // NO relationship configured for CommentId — intentionally FK-less (§4.3).
+        });
+
+        // ---------- ActivityEntry (per-ticket timeline) ----------
+        b.Entity<ActivityEntry>(e =>
+        {
+            e.ToTable("activity_entries", t =>
+            {
+                t.HasCheckConstraint("ck_activity_entries_event_type", eventTypeCheck);
+            });
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.TicketId).HasColumnName("ticket_id").IsRequired();
+            e.Property(x => x.ActorId).HasColumnName("actor_id").IsRequired();
+            e.Property(x => x.EventType).HasColumnName("event_type").HasMaxLength(40).IsRequired();
+            e.Property(x => x.Summary).HasMaxLength(500).IsRequired();
+            e.Property(x => x.DataJson).HasColumnName("data_json");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            // The ticket-detail timeline lists a ticket's entries chronologically.
+            e.HasIndex(x => new { x.TicketId, x.CreatedAt }).HasDatabaseName("ix_activity_ticket_created");
+            e.HasOne(x => x.Ticket)
+                .WithMany()
+                .HasForeignKey(x => x.TicketId)
+                .OnDelete(DeleteBehavior.Cascade); // the timeline dies with the ticket
+            e.HasOne(x => x.Actor)
+                .WithMany()
+                .HasForeignKey(x => x.ActorId)
+                .OnDelete(DeleteBehavior.Restrict); // preserve audit integrity
+        });
+
+        // ---------- Label (team-scoped tag, ADR-0016) ----------
+        b.Entity<Label>(e =>
+        {
+            e.ToTable("labels");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.TeamId).HasColumnName("team_id").IsRequired();
+            e.Property(x => x.Name).HasMaxLength(FieldLimits.LabelNameMax).IsRequired();
+            e.Property(x => x.NameNormalized).HasColumnName("name_normalized").HasMaxLength(FieldLimits.LabelNameMax).IsRequired();
+            e.Property(x => x.Color).HasMaxLength(7).IsRequired();
+            e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            // Case-insensitive uniqueness WITHIN a team (two teams may both have "bug", §4.4).
+            e.HasIndex(x => new { x.TeamId, x.NameNormalized }).IsUnique().HasDatabaseName("ux_labels_team_name");
+            e.HasOne(x => x.Team)
+                .WithMany(t => t.Labels)
+                .HasForeignKey(x => x.TeamId)
+                .OnDelete(DeleteBehavior.Cascade); // a label is owned by its team (pure metadata; never blocks team delete)
+        });
+
+        // ---------- TicketLabel (tag join — like TicketAssignee, but BOTH FKs CASCADE) ----------
+        b.Entity<TicketLabel>(e =>
+        {
+            e.ToTable("ticket_labels");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.TicketId).HasColumnName("ticket_id").IsRequired();
+            e.Property(x => x.LabelId).HasColumnName("label_id").IsRequired();
+            e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            // No label tags the same ticket twice.
+            e.HasIndex(x => new { x.TicketId, x.LabelId }).IsUnique().HasDatabaseName("ux_ticket_labels_ticket_label");
+            e.HasIndex(x => x.LabelId); // board filter "tickets with label L"
+            e.HasOne(x => x.Ticket)
+                .WithMany(t => t.Labels)
+                .HasForeignKey(x => x.TicketId)
+                .OnDelete(DeleteBehavior.Cascade); // a tag is not standalone content (mirrors Ticket→TicketAssignee)
+            e.HasOne(x => x.Label)
+                .WithMany()
+                .HasForeignKey(x => x.LabelId)
+                .OnDelete(DeleteBehavior.Cascade); // removing a label removes it from all tickets
         });
     }
 

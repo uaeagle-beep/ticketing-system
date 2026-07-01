@@ -66,12 +66,17 @@ public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
             // EF Core 10 also registers internal infra keyed to the provider; drop pooling helpers too.
             RemoveAll(services, typeof(IDbContextOptionsConfiguration<AppDbContext>));
 
-            // ---- Remove the migrate-on-startup hosted service so it can never touch SQLite ----
-            // (belt-and-suspenders alongside RUN_MIGRATIONS_ON_STARTUP=false).
+            // ---- Remove the hosted background services so they can never fire during a test ----
+            //  - DatabaseInitializer: would run Npgsql-specific migration SQL against SQLite (ADR-0003);
+            //    belt-and-suspenders alongside RUN_MIGRATIONS_ON_STARTUP=false.
+            //  - NotificationEmailWorker: its PeriodicTimer would drain the outbox non-deterministically
+            //    (ADR-0014, R-8). Tests drive NotificationEmailDispatcher.DrainOnceAsync directly with the
+            //    fake clock + fake sender, so the timer MUST NOT run.
             var hostedToRemove = services
                 .Where(d => d.ServiceType == typeof(IHostedService)
                             && d.ImplementationType is not null
-                            && d.ImplementationType.Name == "DatabaseInitializer")
+                            && (d.ImplementationType.Name == "DatabaseInitializer"
+                                || d.ImplementationType.Name == "NotificationEmailWorker"))
                 .ToList();
             foreach (var d in hostedToRemove)
                 services.Remove(d);

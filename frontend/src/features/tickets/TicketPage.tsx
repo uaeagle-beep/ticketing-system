@@ -27,11 +27,16 @@ import { displayName } from '@/lib/displayName';
 import { errorMessage, isApiErrorCode } from '@/lib/errors';
 import { useTeams } from '@/features/teams/useTeams';
 import { useEpics } from '@/features/epics/useEpics';
+import { useLabels } from '@/features/labels/useLabels';
+import { LabelPicker } from '@/features/labels/LabelPicker';
+import { LabelChips } from '@/components/Badges';
 import { useTeamMembers } from './useTeamMembers';
 import { LoadingState, ErrorState } from '@/components/States';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useToast } from '@/components/toast/ToastContext';
 import { CommentsPanel } from './CommentsPanel';
+import { ActivityTimeline } from './ActivityTimeline';
+import { useToggleWatch } from './useWatch';
 
 interface FormState {
   teamId: string;
@@ -43,6 +48,7 @@ interface FormState {
   title: string;
   body: string;
   assigneeIds: string[];
+  labelIds: string[];
 }
 
 const EMPTY_FORM: FormState = {
@@ -55,6 +61,7 @@ const EMPTY_FORM: FormState = {
   title: '',
   body: '',
   assigneeIds: [],
+  labelIds: [],
 };
 
 // Order-insensitive comparison of two id sets (used to decide whether assignees changed on edit).
@@ -115,6 +122,7 @@ export function TicketPage() {
         title: t.title,
         body: t.body,
         assigneeIds: t.assignees.map((a) => a.id),
+        labelIds: t.labels.map((l) => l.id),
       });
       setInitialized(true);
     }
@@ -128,6 +136,10 @@ export function TicketPage() {
   const { candidates: assigneeCandidates, canList: canListAssignees } = useTeamMembers(
     form.teamId || undefined,
   );
+
+  // The selected team's labels for the picker (member-visible; §9.4). Empty until a team is chosen.
+  const labelsQuery = useLabels(form.teamId || undefined);
+  const teamLabels = labelsQuery.data ?? [];
 
   // If the currently-selected epic isn't in the loaded team's epic list (e.g.
   // after a team change), clear it so we never submit a cross-team epic (V16).
@@ -145,10 +157,10 @@ export function TicketPage() {
 
   const handleTeamChange = (teamId: string) => {
     // Changing team clears the selected epic (FR-E4-5); the epic dropdown then
-    // reloads for the new team. Assignees are also team-scoped (eligibility = team members ∪ admins),
-    // so clear them on team change too (analogous to clear-epic, §7.1). A team change also changes
-    // which states are full, so clear any stale WIP block (UX §4.3).
-    setForm((f) => ({ ...f, teamId, epicId: '', assigneeIds: [] }));
+    // reloads for the new team. Assignees and labels are also team-scoped, so clear them on team change
+    // too (analogous to clear-epic, §7.1 / §9.4). A team change also changes which states are full, so
+    // clear any stale WIP block (UX §4.3).
+    setForm((f) => ({ ...f, teamId, epicId: '', assigneeIds: [], labelIds: [] }));
     setWipBlocked(false);
   };
 
@@ -158,6 +170,15 @@ export function TicketPage() {
       assigneeIds: f.assigneeIds.includes(userId)
         ? f.assigneeIds.filter((id) => id !== userId)
         : [...f.assigneeIds, userId],
+    }));
+  };
+
+  const toggleLabel = (labelId: string) => {
+    setForm((f) => ({
+      ...f,
+      labelIds: f.labelIds.includes(labelId)
+        ? f.labelIds.filter((id) => id !== labelId)
+        : [...f.labelIds, labelId],
     }));
   };
 
@@ -179,7 +200,15 @@ export function TicketPage() {
   };
 
   const createMutation = useMutation({
-    mutationFn: (payload: CreateTicketRequest) => ticketsApi.create(payload),
+    // Create the ticket, then (only if labels were picked) apply the full set via the dedicated
+    // sub-resource (§5.7). assigneeIds go in the create body directly; labels use the sub-resource.
+    mutationFn: async (payload: CreateTicketRequest) => {
+      const created = await ticketsApi.create(payload);
+      if (form.labelIds.length > 0) {
+        return ticketsApi.setLabels(created.id, { labelIds: form.labelIds });
+      }
+      return created;
+    },
     onSuccess: (created) => {
       toast.showSuccess('Ticket created.');
       queryClient.invalidateQueries({ queryKey: ['board', created.teamId] });
@@ -194,10 +223,16 @@ export function TicketPage() {
     // sub-resource (§4.2 recommended primary path). The main PUT omits assigneeIds so it leaves the
     // set untouched (R-10). Assignment does not bump modified_at, so ordering stays stable.
     mutationFn: async (payload: UpdateTicketRequest) => {
-      const saved = await ticketsApi.update(id as string, payload);
-      const original = (ticketQuery.data?.assignees ?? []).map((a) => a.id);
-      if (!sameIdSet(original, form.assigneeIds)) {
-        return ticketsApi.setAssignees(id as string, { userIds: form.assigneeIds });
+      let saved = await ticketsApi.update(id as string, payload);
+      const originalAssignees = (ticketQuery.data?.assignees ?? []).map((a) => a.id);
+      if (!sameIdSet(originalAssignees, form.assigneeIds)) {
+        saved = await ticketsApi.setAssignees(id as string, { userIds: form.assigneeIds });
+      }
+      // Labels are also team-scoped metadata replaced via their own sub-resource (§5.7); apply only
+      // when the set changed. The last sub-resource response carries the freshest detail (labels[]).
+      const originalLabels = (ticketQuery.data?.labels ?? []).map((l) => l.id);
+      if (!sameIdSet(originalLabels, form.labelIds)) {
+        saved = await ticketsApi.setLabels(id as string, { labelIds: form.labelIds });
       }
       return saved;
     },
@@ -205,9 +240,14 @@ export function TicketPage() {
       toast.showSuccess('Ticket saved.');
       queryClient.setQueryData(queryKeys.ticket(updated.id), updated);
       queryClient.invalidateQueries({ queryKey: ['board', updated.teamId] });
+      // A field/state/assignee change writes activity — refresh the timeline (§9.3).
+      queryClient.invalidateQueries({ queryKey: queryKeys.activity(updated.id) });
     },
     onError: handleSaveError,
   });
+
+  // Watch toggle (edit mode only; a ticket must exist). Reflects ticket.isWatching (§6.7).
+  const watchToggle = useToggleWatch(id ?? '');
 
   const deleteMutation = useMutation({
     mutationFn: () => ticketsApi.remove(id as string),
@@ -288,6 +328,18 @@ export function TicketPage() {
         <div className="page-header" style={{ marginBottom: 4 }}>
           <Link to={backTeamId ? `/board?team=${backTeamId}` : '/board'}>← Back to board</Link>
           <div className="spacer" />
+          {!isCreate && detail ? (
+            <button
+              type="button"
+              className={`btn btn-sm ${detail.isWatching ? 'btn-secondary' : 'btn-ghost'}`}
+              onClick={() => watchToggle.toggle(detail.isWatching)}
+              disabled={watchToggle.isPending}
+              aria-pressed={detail.isWatching}
+              title={detail.isWatching ? 'Stop watching this ticket' : 'Watch this ticket for updates'}
+            >
+              {detail.isWatching ? '👁 Watching' : '👁 Watch'}
+            </button>
+          ) : null}
           {!isCreate ? (
             <button
               type="button"
@@ -310,6 +362,12 @@ export function TicketPage() {
             <span className="dot">Created by {displayName(detail.createdByName, detail.createdByEmail)}</span>
             <span className="dot">Created {formatUtc(detail.createdAt)}</span>
             <span className="dot">Modified {formatUtc(detail.modifiedAt)}</span>
+          </div>
+        ) : null}
+
+        {!isCreate && detail && detail.labels.length > 0 ? (
+          <div style={{ marginBottom: 8 }}>
+            <LabelChips labels={detail.labels} />
           </div>
         ) : null}
 
@@ -462,6 +520,20 @@ export function TicketPage() {
             </div>
 
             <div className="field full">
+              <label htmlFor="ticket-labels">Labels</label>
+              {form.teamId ? (
+                <LabelPicker
+                  labels={teamLabels}
+                  selectedIds={form.labelIds}
+                  disabled={saving || labelsQuery.isLoading}
+                  onToggle={toggleLabel}
+                />
+              ) : (
+                <span className="muted">Select a team to choose labels.</span>
+              )}
+            </div>
+
+            <div className="field full">
               <label htmlFor="ticket-title">Title</label>
               <input
                 id="ticket-title"
@@ -502,8 +574,15 @@ export function TicketPage() {
         </form>
       </div>
 
-      {/* Comments only exist for a persisted ticket. */}
-      {!isCreate && id ? <CommentsPanel ticketId={id} /> : <div />}
+      {/* Comments + activity only exist for a persisted ticket. */}
+      {!isCreate && id ? (
+        <div className="ticket-side">
+          <CommentsPanel ticketId={id} />
+          <ActivityTimeline ticketId={id} />
+        </div>
+      ) : (
+        <div />
+      )}
 
       <ConfirmDialog
         open={confirmOpen}

@@ -21,6 +21,9 @@ public static class FieldLimits
     public const int TicketBodyMax = 100_000;
     public const int CommentBodyMax = 20_000;
 
+    /// <summary>Label name length bound (Wave 2, ADR-0016). Overflow =&gt; 400 validation_error keyed "name".</summary>
+    public const int LabelNameMax = 50;
+
     /// <summary>WIP limit value bounds: a set limit is an integer in [1, 999] (null = unlimited).</summary>
     public const int WipLimitMin = 1;
     public const int WipLimitMax = 999;

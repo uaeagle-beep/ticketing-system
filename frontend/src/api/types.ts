@@ -40,6 +40,8 @@ export type ApiErrorCode =
   | 'account_blocked'
   | 'last_admin_required'
   | 'email_in_use'
+  // Labels (Wave 2, ADR-0016).
+  | 'duplicate_label_name'
   // Defensive fallback for any code not enumerated above.
   | (string & {});
 
@@ -115,6 +117,22 @@ export interface AssigneeRef {
   displayName: string;
 }
 
+// ---- Labels (Wave 2, §5.6/§5.7, ADR-0016) ----
+// A full label as returned by the label CRUD endpoints.
+export interface Label {
+  id: string;
+  teamId: string;
+  name: string;
+  color: string; // "#rrggbb"
+}
+
+// A lightweight label reference (id + name + color) carried on tickets for the chip (§8.5).
+export interface LabelRef {
+  id: string;
+  name: string;
+  color: string;
+}
+
 // ---- Tickets (API_CONTRACT §6) ----
 export interface TicketDetail {
   id: string;
@@ -139,6 +157,10 @@ export interface TicketDetail {
   createdByEmail: string;
   // Creator's optional display name (Feature 1). null => the UI shows createdByEmail.
   createdByName: string | null;
+  // Wave 2 (§6.7): whether the current user watches this ticket. Drives the detail watch toggle.
+  isWatching: boolean;
+  // Wave 2 (§8.5, ADR-0016): the ticket's labels (id + name + color) for chips.
+  labels: LabelRef[];
 }
 
 // Card payload as returned inside the board columns (subset of the detail).
@@ -154,6 +176,8 @@ export interface TicketCard {
   isOverdue: boolean;
   assignees: AssigneeRef[];
   modifiedAt: string;
+  // Wave 2 (§8.5, ADR-0016): the card's labels.
+  labels: LabelRef[];
 }
 
 export interface BoardColumn {
@@ -192,6 +216,102 @@ export interface Comment {
   authorName: string | null;
   body: string;
   createdAt: string;
+  // F-12 (Wave 2, §5.2): true once the body has been edited; editedAt is the edit time (null otherwise).
+  edited: boolean;
+  editedAt: string | null;
+}
+
+// ---- Team members (Wave 2, §5.8 / ADR-0017) ----
+// GET /api/teams/{id}/members — the member-visible picker. displayName is computed server-side
+// (name?.trim() || email). isAdmin is the user's global admin flag.
+export interface TeamMember {
+  id: string;
+  displayName: string;
+  isAdmin: boolean;
+}
+
+// ---- Notifications subsystem (Wave 2, §8, ADR-0013) ----
+
+// Canonical application-event codes (WAVE2 §6.1). Also used by activity entries.
+export const EVENT_TYPES = [
+  'ticket_created',
+  'ticket_field_changed',
+  'ticket_moved',
+  'ticket_assignees_changed',
+  'comment_added',
+  'comment_edited',
+  'comment_deleted',
+  'ticket_deleted',
+] as const;
+export type EventType = (typeof EVENT_TYPES)[number] | (string & {});
+
+// One in-app notification. readAt === null => unread. ticketId === null => deleted-ticket tombstone
+// (non-navigable in the SPA, §6.6).
+export interface Notification {
+  id: string;
+  eventType: EventType;
+  summary: string;
+  ticketId: string | null;
+  commentId: string | null;
+  actorId: string;
+  actorDisplayName: string;
+  createdAt: string; // ISO-8601 UTC
+  readAt: string | null;
+}
+
+// A page of notifications newest-first + the caller's unread count (so the bell updates from the
+// same call). Keyset pagination via an opaque cursor.
+export interface NotificationList {
+  items: Notification[];
+  unreadCount: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+export interface UnreadCount {
+  unreadCount: number;
+}
+
+// GET/PUT /api/me/notification-settings — the email toggle (§6.8).
+export interface NotificationSettings {
+  emailNotificationsEnabled: boolean;
+}
+
+export interface UpdateNotificationSettingsRequest {
+  emailNotificationsEnabled: boolean;
+}
+
+// ---- Activity timeline (Wave 2, §5.5, ADR-0012) ----
+export interface ActivityEntry {
+  id: string;
+  eventType: EventType;
+  summary: string;
+  actorId: string;
+  actorDisplayName: string;
+  createdAt: string; // ISO-8601 UTC
+}
+
+export interface ActivityList {
+  items: ActivityEntry[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+// ---- Watchers (Wave 2, §5.4, ADR-0013) ----
+export interface WatcherRef {
+  id: string;
+  displayName: string;
+}
+
+// Response to POST/DELETE /api/tickets/{id}/watch.
+export interface WatchStatus {
+  watching: boolean;
+}
+
+// Response to GET /api/tickets/{id}/watchers.
+export interface Watchers {
+  watching: boolean;
+  watchers: WatcherRef[];
 }
 
 // ---- Request bodies ----
@@ -295,7 +415,29 @@ export interface SetAssigneesRequest {
   userIds: string[];
 }
 
+// ---- Label management (Wave 2, §5.6, ADR-0016) ----
+export interface CreateLabelRequest {
+  teamId: string;
+  name: string;
+  color: string; // "#rrggbb"
+}
+
+export interface UpdateLabelRequest {
+  name: string;
+  color: string;
+}
+
+// PUT /api/tickets/{id}/labels — authoritative full label set (§5.7).
+export interface SetLabelsRequest {
+  labelIds: string[];
+}
+
 export interface CreateCommentRequest {
+  body: string;
+}
+
+// PUT /api/comments/{id} — edit own comment (F-12, §5.2).
+export interface EditCommentRequest {
   body: string;
 }
 
@@ -309,6 +451,8 @@ export interface BoardFilters {
   assigneeId?: string; // filter to a specific assignee
   assignedToMe?: boolean; // sugar for the current user; wins over assigneeId if both set
   dueFilter?: DueFilter; // overdue | has_due_date | no_due_date
+  // Wave 2 (§8.4): filter to tickets carrying a specific label (AND-combined with the others).
+  labelId?: string;
 }
 
 // ---- Admin — User Management (API_CONTRACT §8, ADR-0007) ----

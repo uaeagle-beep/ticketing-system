@@ -5,10 +5,13 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
 import { displayName } from '@/lib/displayName';
+import { useUnreadCount } from '@/features/notifications/useNotifications';
 
 export function AppLayout() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const unreadQuery = useUnreadCount();
+  const unread = unreadQuery.data?.unreadCount ?? 0;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -57,6 +60,22 @@ export function AppLayout() {
           ) : null}
         </nav>
         <div className="app-header-spacer" />
+        <button
+          type="button"
+          className="notif-bell"
+          aria-label={
+            unread > 0 ? `Notifications (${unread} unread)` : 'Notifications'
+          }
+          title="Notifications"
+          onClick={() => navigate('/notifications')}
+        >
+          <span aria-hidden>🔔</span>
+          {unread > 0 ? (
+            <span className="notif-badge" aria-hidden>
+              {unread > 99 ? '99+' : unread}
+            </span>
+          ) : null}
+        </button>
         <div className="user-menu" ref={menuRef}>
           <button
             type="button"

@@ -12,13 +12,27 @@ namespace TicketTracker.Tests.Fakes;
 /// </summary>
 public sealed class FakeEmailSender : IEmailSender
 {
-    public enum EmailKind { Verification, PasswordReset }
+    public enum EmailKind { Verification, PasswordReset, NotificationDigest }
 
     public sealed record SentEmail(string To, string Link, EmailKind Kind = EmailKind.Verification);
 
+    /// <summary>A captured notification digest (Wave 2, ADR-0014): recipient + the coalesced summary lines.</summary>
+    public sealed record SentDigest(string To, IReadOnlyList<string> Lines, string DeepLinkBase);
+
     private readonly ConcurrentQueue<SentEmail> _sent = new();
+    private readonly ConcurrentQueue<SentDigest> _digests = new();
+
+    /// <summary>
+    /// Addresses (case-insensitive) whose digest send should THROW, to exercise the dispatcher's
+    /// per-recipient try/catch isolation (R-4: one bad recipient must not starve the others). Opt-in and
+    /// empty by default, so existing tests are unaffected. Set via <c>Factory.Email.FailDigestsFor.Add(email)</c>.
+    /// </summary>
+    public HashSet<string> FailDigestsFor { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyList<SentEmail> Sent => _sent.ToArray();
+
+    /// <summary>Every notification digest captured (tests assert coalescing / idempotency).</summary>
+    public IReadOnlyList<SentDigest> Digests => _digests.ToArray();
 
     public Task SendVerificationEmailAsync(string toEmail, string verificationLink, CancellationToken ct)
     {
@@ -31,6 +45,18 @@ public sealed class FakeEmailSender : IEmailSender
         _sent.Enqueue(new SentEmail(toEmail, resetLink, EmailKind.PasswordReset));
         return Task.CompletedTask;
     }
+
+    public Task SendNotificationDigestEmailAsync(string toEmail, IReadOnlyList<string> lines, string deepLinkBase, CancellationToken ct)
+    {
+        if (FailDigestsFor.Contains(toEmail))
+            throw new InvalidOperationException($"Simulated digest send failure for '{toEmail}'.");
+        _digests.Enqueue(new SentDigest(toEmail, lines.ToArray(), deepLinkBase));
+        return Task.CompletedTask;
+    }
+
+    /// <summary>All digests captured for the given address (case-insensitive), newest last.</summary>
+    public IReadOnlyList<SentDigest> DigestsFor(string email)
+        => _digests.Where(d => string.Equals(d.To, email, StringComparison.OrdinalIgnoreCase)).ToArray();
 
     /// <summary>The most recent email captured for the given address (case-insensitive), or null.</summary>
     public SentEmail? LastFor(string email)

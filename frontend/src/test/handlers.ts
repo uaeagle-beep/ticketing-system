@@ -11,15 +11,23 @@
 
 import { http, HttpResponse } from 'msw';
 import type {
+  ActivityList,
   AdminUser,
   AuthUser,
   Board,
   Comment,
   Epic,
+  Label,
   LoginResponse,
   MessageResponse,
+  NotificationList,
+  NotificationSettings,
   Team,
+  TeamMember,
   TicketDetail,
+  UnreadCount,
+  Watchers,
+  WatchStatus,
 } from '@/api/types';
 
 // Same base path the real client uses (API_BASE = '/api').
@@ -89,7 +97,15 @@ export const sampleTicketDetail: TicketDetail = {
   createdBy: sampleUser.id,
   createdByEmail: sampleUser.email,
   createdByName: null,
+  isWatching: false,
+  labels: [],
 };
+
+// Team labels for the picker / management surface / board filter (Wave 2, §5.6, ADR-0016).
+export const sampleLabels: Label[] = [
+  { id: 'lb01-backend', teamId: sampleTeam.id, name: 'Backend', color: '#3b82f6' },
+  { id: 'lb02-urgent', teamId: sampleTeam.id, name: 'Urgent', color: '#ef4444' },
+];
 
 export const sampleComment: Comment = {
   id: 'cm01-looks-fixed',
@@ -99,6 +115,74 @@ export const sampleComment: Comment = {
   authorName: null,
   body: 'Looks fixed.',
   createdAt: '2026-06-23T13:00:00Z',
+  edited: false,
+  editedAt: null,
+};
+
+// Team members for the member-visible picker (Wave 2 §5.8 / ADR-0017).
+export const sampleTeamMembers: TeamMember[] = [
+  { id: sampleUser.id, displayName: sampleUser.email, isAdmin: true },
+  { id: '8e29c1b4-0000-4000-8000-000000000002', displayName: 'dev@dataart.com', isAdmin: false },
+];
+
+// ---- Wave 2 notifications subsystem fixtures (§8) --------------------------
+
+export const sampleNotificationList: NotificationList = {
+  items: [
+    {
+      id: 'nt01-moved',
+      eventType: 'ticket_moved',
+      summary: 'Alex Doe moved this from New to In progress',
+      ticketId: sampleTicketDetail.id,
+      commentId: null,
+      actorId: '8e29c1b4-0000-4000-8000-000000000002',
+      actorDisplayName: 'Alex Doe',
+      createdAt: '2026-06-23T14:00:00Z',
+      readAt: null, // unread
+    },
+    {
+      id: 'nt02-tombstone',
+      eventType: 'ticket_deleted',
+      summary: "Alex Doe deleted ticket 'Old bug'",
+      ticketId: null, // deleted-ticket tombstone (non-navigable, §6.6)
+      commentId: null,
+      actorId: '8e29c1b4-0000-4000-8000-000000000002',
+      actorDisplayName: 'Alex Doe',
+      createdAt: '2026-06-23T13:00:00Z',
+      readAt: '2026-06-23T13:10:00Z', // read
+    },
+  ],
+  unreadCount: 1,
+  hasMore: false,
+  nextCursor: null,
+};
+
+export const sampleActivityList: ActivityList = {
+  items: [
+    {
+      id: 'ac01-moved',
+      eventType: 'ticket_moved',
+      summary: 'Alex Doe moved this from New to In progress',
+      actorId: sampleUser.id,
+      actorDisplayName: sampleUser.email,
+      createdAt: '2026-06-23T14:00:00Z',
+    },
+    {
+      id: 'ac00-created',
+      eventType: 'ticket_created',
+      summary: 'Alex Doe created this ticket',
+      actorId: sampleUser.id,
+      actorDisplayName: sampleUser.email,
+      createdAt: '2026-06-22T09:15:00Z',
+    },
+  ],
+  hasMore: false,
+  nextCursor: null,
+};
+
+export const sampleWatchers: Watchers = {
+  watching: false,
+  watchers: [{ id: sampleUser.id, displayName: sampleUser.email }],
 };
 
 // ---- Admin user-management sample data (API_CONTRACT §8) --------------------
@@ -151,6 +235,7 @@ export function makeBoard(overrides: Partial<Board> = {}): Board {
             isOverdue: false,
             assignees: [{ id: sampleUser.id, displayName: sampleUser.email }],
             modifiedAt: '2026-06-23T12:40:00Z',
+            labels: [],
           },
         ],
       },
@@ -228,8 +313,18 @@ export const handlers = [
   }),
   http.post(`${API}/me/password`, () => new HttpResponse(null, { status: 204 })),
 
+  // Notification settings (Wave 2 §6.8)
+  http.get(`${API}/me/notification-settings`, () =>
+    ok<NotificationSettings>({ emailNotificationsEnabled: true }, 200),
+  ),
+  http.put(`${API}/me/notification-settings`, async ({ request }) => {
+    const b = (await request.json()) as { emailNotificationsEnabled: boolean };
+    return ok<NotificationSettings>({ emailNotificationsEnabled: b.emailNotificationsEnabled }, 200);
+  }),
+
   // Teams (§4)
   http.get(`${API}/teams`, () => ok<Team[]>([sampleTeam], 200)),
+  http.get(`${API}/teams/:id/members`, () => ok<TeamMember[]>(sampleTeamMembers, 200)),
   http.post(`${API}/teams`, () => ok<Team>(sampleTeam, 201)),
   http.put(`${API}/teams/:id`, () => ok<Team>(sampleTeam, 200)),
   http.delete(`${API}/teams/:id`, () => new HttpResponse(null, { status: 204 })),
@@ -261,11 +356,67 @@ export const handlers = [
     }));
     return ok<TicketDetail>({ ...sampleTicketDetail, assignees }, 200);
   }),
+  // PUT /api/tickets/{id}/labels -> 200 TicketDetail (full-set replace, Wave 2 §5.7): echo the set back.
+  http.put(`${API}/tickets/:id/labels`, async ({ request }) => {
+    const body = (await request.json()) as { labelIds: string[] };
+    const labels = body.labelIds.map(
+      (lid) => sampleLabels.find((l) => l.id === lid) ?? { id: lid, name: lid, color: '#64748b' },
+    );
+    return ok<TicketDetail>({ ...sampleTicketDetail, labels }, 200);
+  }),
   http.delete(`${API}/tickets/:id`, () => new HttpResponse(null, { status: 204 })),
+
+  // Watchers + activity (Wave 2 §5.4/§5.5)
+  http.get(`${API}/tickets/:id/watchers`, () => ok<Watchers>(sampleWatchers, 200)),
+  http.post(`${API}/tickets/:id/watch`, () => ok<WatchStatus>({ watching: true }, 200)),
+  http.delete(`${API}/tickets/:id/watch`, () => ok<WatchStatus>({ watching: false }, 200)),
+  http.get(`${API}/tickets/:id/activity`, () => ok<ActivityList>(sampleActivityList, 200)),
 
   // Comments (§7)
   http.get(`${API}/tickets/:id/comments`, () => ok<Comment[]>([sampleComment], 200)),
   http.post(`${API}/tickets/:id/comments`, () => ok<Comment>(sampleComment, 201)),
+  // PUT /api/comments/{id} -> 200 Comment (edit own, F-12): echo the new body + edited flag.
+  http.put(`${API}/comments/:id`, async ({ request, params }) => {
+    const b = (await request.json()) as { body: string };
+    return ok<Comment>(
+      {
+        ...sampleComment,
+        id: String(params.id),
+        body: b.body,
+        edited: true,
+        editedAt: '2026-06-23T13:05:00Z',
+      },
+      200,
+    );
+  }),
+  // DELETE /api/comments/{id} -> 204 (author or admin, F-12).
+  http.delete(`${API}/comments/:id`, () => new HttpResponse(null, { status: 204 })),
+
+  // Labels (Wave 2 §5.6, ADR-0016)
+  http.get(`${API}/labels`, () => ok<Label[]>(sampleLabels, 200)),
+  http.post(`${API}/labels`, async ({ request }) => {
+    const b = (await request.json()) as { teamId: string; name: string; color: string };
+    return ok<Label>(
+      { id: `lb-${b.name.toLowerCase()}`, teamId: b.teamId, name: b.name, color: b.color.toLowerCase() },
+      201,
+    );
+  }),
+  http.put(`${API}/labels/:id`, async ({ request, params }) => {
+    const b = (await request.json()) as { name: string; color: string };
+    return ok<Label>(
+      { id: String(params.id), teamId: sampleTeam.id, name: b.name, color: b.color.toLowerCase() },
+      200,
+    );
+  }),
+  http.delete(`${API}/labels/:id`, () => new HttpResponse(null, { status: 204 })),
+
+  // Notifications (Wave 2 §8, Self)
+  http.get(`${API}/notifications/unread-count`, () =>
+    ok<UnreadCount>({ unreadCount: sampleNotificationList.unreadCount }, 200),
+  ),
+  http.get(`${API}/notifications`, () => ok<NotificationList>(sampleNotificationList, 200)),
+  http.post(`${API}/notifications/read-all`, () => ok<UnreadCount>({ unreadCount: 0 }, 200)),
+  http.post(`${API}/notifications/:id/read`, () => ok<UnreadCount>({ unreadCount: 0 }, 200)),
 
   // Admin — User Management (§8, admin-only)
   http.get(`${API}/admin/users`, () => ok<AdminUser[]>([sampleAdminUser, sampleMemberUser], 200)),

@@ -3,6 +3,7 @@
 
 import { http } from './client';
 import type {
+  ActivityList,
   AdminUser,
   AuthUser,
   Board,
@@ -12,32 +13,44 @@ import type {
   CreateCommentRequest,
   CreateEpicRequest,
   CreateTeamRequest,
+  CreateLabelRequest,
   CreateTicketRequest,
   CreateUserRequest,
   CreateUserResponse,
+  EditCommentRequest,
   Epic,
+  Label,
   ForgotPasswordRequest,
   LoginRequest,
   LoginResponse,
   MessageResponse,
+  NotificationList,
+  NotificationSettings,
   PatchTicketStateRequest,
   RenameTeamRequest,
   ResendVerificationRequest,
   ResetPasswordRequest,
   ResetPasswordResponse,
   SetAssigneesRequest,
+  SetLabelsRequest,
   SetNameRequest,
   SetRoleRequest,
   SetTeamsRequest,
   SignupRequest,
   Team,
+  TeamMember,
   TicketDetail,
   TicketStatePatchResponse,
+  UnreadCount,
   UpdateEpicRequest,
+  UpdateLabelRequest,
+  UpdateNotificationSettingsRequest,
   UpdateProfileRequest,
   UpdateTicketRequest,
   UpdateWipLimitsRequest,
   VerifyEmailRequest,
+  Watchers,
+  WatchStatus,
 } from './types';
 
 // ---- Auth (§3) ----
@@ -78,6 +91,14 @@ export const meApi = {
 
   // POST /api/me/password -> 204 (current session kept; other sessions purged)
   changePassword: (body: ChangePasswordRequest) => http.post<void>('/me/password', body),
+
+  // GET /api/me/notification-settings -> 200 NotificationSettings (Wave 2 §6.8)
+  getNotificationSettings: (signal?: AbortSignal) =>
+    http.get<NotificationSettings>('/me/notification-settings', undefined, signal),
+
+  // PUT /api/me/notification-settings -> 200 NotificationSettings
+  updateNotificationSettings: (body: UpdateNotificationSettingsRequest) =>
+    http.put<NotificationSettings>('/me/notification-settings', body),
 };
 
 // ---- Teams (§4) ----
@@ -94,6 +115,10 @@ export const teamsApi = {
   // PUT /api/teams/{id}/wip-limits -> 200 Team (with updated wipLimits)
   setWipLimits: (id: string, body: UpdateWipLimitsRequest) =>
     http.put<Team>(`/teams/${id}/wip-limits`, body),
+
+  // GET /api/teams/{id}/members -> 200 TeamMember[] (member-visible picker, Wave 2 §5.8)
+  members: (id: string, signal?: AbortSignal) =>
+    http.get<TeamMember[]>(`/teams/${id}/members`, undefined, signal),
 
   // DELETE /api/teams/{id} -> 204
   remove: (id: string) => http.delete<void>(`/teams/${id}`),
@@ -131,6 +156,7 @@ export const ticketsApi = {
         assignedToMe: filters.assignedToMe ? true : undefined,
         assigneeId: filters.assignedToMe ? undefined : filters.assigneeId,
         dueFilter: filters.dueFilter,
+        labelId: filters.labelId,
       },
       signal,
     ),
@@ -154,8 +180,26 @@ export const ticketsApi = {
   setAssignees: (id: string, body: SetAssigneesRequest) =>
     http.put<TicketDetail>(`/tickets/${id}/assignees`, body),
 
+  // PUT /api/tickets/{id}/labels -> 200 TicketDetail (full-set replace, Wave 2 §5.7)
+  setLabels: (id: string, body: SetLabelsRequest) =>
+    http.put<TicketDetail>(`/tickets/${id}/labels`, body),
+
   // DELETE /api/tickets/{id} -> 204 (cascades comments)
   remove: (id: string) => http.delete<void>(`/tickets/${id}`),
+
+  // GET /api/tickets/{id}/watchers -> 200 Watchers (caller flag + list, Wave 2 §5.4)
+  watchers: (id: string, signal?: AbortSignal) =>
+    http.get<Watchers>(`/tickets/${id}/watchers`, undefined, signal),
+
+  // POST /api/tickets/{id}/watch -> 200 WatchStatus (idempotent)
+  watch: (id: string) => http.post<WatchStatus>(`/tickets/${id}/watch`),
+
+  // DELETE /api/tickets/{id}/watch -> 200 WatchStatus (idempotent)
+  unwatch: (id: string) => http.delete<WatchStatus>(`/tickets/${id}/watch`),
+
+  // GET /api/tickets/{id}/activity?limit=&cursor= -> 200 ActivityList (Wave 2 §5.5)
+  activity: (id: string, cursor?: string, signal?: AbortSignal) =>
+    http.get<ActivityList>(`/tickets/${id}/activity`, { cursor }, signal),
 };
 
 // ---- Comments (§7) ----
@@ -167,6 +211,46 @@ export const commentsApi = {
   // POST /api/tickets/{id}/comments -> 201 Comment
   create: (ticketId: string, body: CreateCommentRequest) =>
     http.post<Comment>(`/tickets/${ticketId}/comments`, body),
+
+  // PUT /api/comments/{id} -> 200 Comment (edit own comment; author-only, F-12)
+  update: (commentId: string, body: EditCommentRequest) =>
+    http.put<Comment>(`/comments/${commentId}`, body),
+
+  // DELETE /api/comments/{id} -> 204 (author or admin, F-12)
+  remove: (commentId: string) => http.delete<void>(`/comments/${commentId}`),
+};
+
+// ---- Labels (Wave 2, §5.6, ADR-0016; M(team)) ----
+export const labelsApi = {
+  // GET /api/labels?teamId= -> 200 Label[] (a team's labels, ordered by name)
+  list: (teamId: string, signal?: AbortSignal) =>
+    http.get<Label[]>('/labels', { teamId }, signal),
+
+  // POST /api/labels -> 201 Label (409 duplicate_label_name on a per-team collision)
+  create: (body: CreateLabelRequest) => http.post<Label>('/labels', body),
+
+  // PUT /api/labels/{id} -> 200 Label (rename / recolor)
+  update: (id: string, body: UpdateLabelRequest) => http.put<Label>(`/labels/${id}`, body),
+
+  // DELETE /api/labels/{id} -> 204 (disposable; removes from all tickets)
+  remove: (id: string) => http.delete<void>(`/labels/${id}`),
+};
+
+// ---- Notifications (Wave 2, §8, Self) ----
+export const notificationsApi = {
+  // GET /api/notifications?limit=&cursor= -> 200 NotificationList (newest-first, keyset-paged)
+  list: (cursor?: string, limit?: number, signal?: AbortSignal) =>
+    http.get<NotificationList>('/notifications', { cursor, limit }, signal),
+
+  // GET /api/notifications/unread-count -> 200 { unreadCount } (cheap poll target)
+  unreadCount: (signal?: AbortSignal) =>
+    http.get<UnreadCount>('/notifications/unread-count', undefined, signal),
+
+  // POST /api/notifications/{id}/read -> 200 { unreadCount } (idempotent; another user's id -> 404)
+  markRead: (id: string) => http.post<UnreadCount>(`/notifications/${id}/read`),
+
+  // POST /api/notifications/read-all -> 200 { unreadCount: 0 }
+  markAllRead: () => http.post<UnreadCount>('/notifications/read-all'),
 };
 
 // ---- Admin — User Management (§8, admin-only) ----

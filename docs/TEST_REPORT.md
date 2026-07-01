@@ -1,14 +1,14 @@
 # Automated Test Report — Ticket Tracker
 
-_Updated: 2026-07-01 · Wave 1 (ticket priority, multiple assignees, due date; self-service password reset, self-profile, default-team auto-provisioning)_
+_Updated: 2026-07-01 · Wave 2 (notifications + in-app inbox + email digest worker, activity history, watchers, labels/tags, comment edit/delete, team-members endpoint) on top of Wave 1_
 
 ## 1. Regression run — summary
 
 | Suite | Type | Files | Tests | Result | Duration |
 |---|---|---|---:|---|---|
-| **Backend** (`dotnet test`) | integration (HTTP) + unit | 22 | **330** | ✅ **330 passed / 0 failed / 0 skipped** | ~49 s |
-| **Frontend** (`vitest`) | unit + component (jsdom) | 29 | **208** | ✅ **208 passed / 0 failed** | ~42 s |
-| **Total automated (unit/component/integration)** | | 51 | **538** | ✅ **all green** | |
+| **Backend** (`dotnet test`) | integration (HTTP) + unit | 34 | **430** | ✅ **430 passed / 0 failed / 0 skipped** | ~60 s |
+| **Frontend** (`vitest`) | unit + component (jsdom) | 40 | **255** | ✅ **255 passed / 0 failed** | ~45 s |
+| **Total automated (unit/component/integration)** | | 74 | **685** | ✅ **all green** | |
 | Playwright E2E — **smoke** | browser (vs live prod) | 1 spec | **6** | ✅ **6 passed** (against https://honcharenko.pp.ua) | ~17 s |
 | Playwright E2E — happy-path | browser end-to-end | 1 spec | **1** | ✅ **1 passed** on an isolated server stack (`tt-e2e` + Mailpit); CI-wired (`e2e` job) | ~10 s |
 
@@ -132,3 +132,36 @@ Backend **+96** tests (234 → **330**), frontend **+40** (168 → **208**); ful
 | `features/account/AccountPage.test.tsx` | 8 | email read-only, trimmed name/clear, pw change (min-length, mismatch, 401→field error, clear on success) |
 
 **Known gap:** the assignee picker sources candidates from the admin user-list, so for **non-admin** users the picker pool is empty (no member-visible `GET /api/teams/{id}/members` yet); backend eligibility is still enforced (400). "Assigned to me" and read-only display of existing assignees work for everyone. Slated for a later wave.
+
+## 10. Wave 2 additions (2026-07-01) — notifications / activity / watchers / labels / comment edit-delete / members
+
+Backend **+100** (330 → **430**), frontend **+47** (208 → **255**); full regression green across the three sequential migrations `AddWave2CommentsAndMembers` → `AddWave2Notifications` → `AddWave2Labels` (parity clean). No product defects found. Built in 3 phases (P1 members + comment edit/delete; P2 event-backbone + notifications + activity + email-outbox worker; P3 labels), then a dedicated QA pass added the full acceptance suites (§10 A–J of WAVE2_DESIGN).
+
+Key acceptance behaviours proven by executed tests:
+- **Notification fan-out** goes to all watchers **except the actor**; auto-watch on create / becoming-assignee / commenting; manual watch/unwatch; a **stale watcher** (removed from team, or blocked) is skipped at fan-out AND read but the row is preserved and delivery **resumes** on re-add.
+- **Email outbox worker** (`NotificationEmailDispatcher.DrainOnceAsync(now)`): actions inside the 60s window are debounced; after the window one **coalesced digest per recipient**; a second drain sends nothing (**idempotent** via `emailed_at`); email-off and blocked recipients are marked emailed **without sending** (no backlog); one bad recipient does not starve the rest (per-recipient try/catch). Driven deterministically with `TestClock` + `FakeEmailSender`.
+- **Activity history**: exactly one entry per event, one per changed field on a multi-field edit, `ticket_moved` as its own entry; comment edit/delete are **activity-only** (no notification/email); team-scoped, keyset-paged.
+- **Comments (F-12)**: edit author-only (admins cannot edit others' words), delete author-or-admin; no-op edit writes nothing; anti-IDOR 404-then-403.
+- **Labels**: per-team case-insensitive uniqueness → `409 duplicate_label_name`; same name across teams OK; full-set replace assignment; `&labelId=` board filter; delete cascades out of all tickets (no orphans); assignment does not bump `modified_at`.
+- **Ticket-delete cascade**: `ticket_labels` / `ticket_watchers` / `ticket_assignees` / `activity_entries` removed; `notifications.ticket_id` **SET NULL** so the notification survives as a non-navigable tombstone.
+
+| New / extended backend file | Tests | Area |
+|---|---:|---|
+| `Api/NotificationFanoutTests.cs` | 7 | fan-out actor-exclusion, auto-watch, stale/blocked/admin-watcher |
+| `Api/ActivityTimelineTests.cs` | 10 | per-event cardinality, move-as-own-entry, keyset, cascade, team-scope |
+| `Api/NotificationApiTests.cs` | 7 | list/unread-count/mark/read-all/keyset/self-scope 404 |
+| `Api/NotificationEmailWorkerTests.cs` | 6 | coalesce/idempotent/one-bad-recipient/email-off/tombstone |
+| `Api/TicketDeleteCascadeTests.cs` | 2 | cascades + notification tombstone |
+| `Api/LabelsTests.cs` + `Api/LabelsAcceptanceTests.cs` | 18 + 9 | CRUD, per-team dup 409, colour/name validation, full-set replace, filter, cascade |
+| `Api/CommentEditDeleteTests.cs` + `Api/CommentEditDeleteAcceptanceTests.cs` | ~16 + 7 | author-only edit / author-or-admin delete, edited_at, anti-IDOR |
+| `Api/TeamMembersTests.cs` | ~7 | members endpoint access |
+| `Api/NotificationsTests.cs` + `Api/NotificationEmailDispatcherTests.cs` (dev smoke) | 17 | fan-out + dispatcher smoke |
+
+| New / extended frontend file | Tests | Area |
+|---|---:|---|
+| `components/NotificationBell*.test.tsx` | 3+ | unread badge 0/N/99+ |
+| `features/notifications/NotificationsPage*.test.tsx` | 6+ | mark+navigate, tombstone non-navigable, load-more, empty/error |
+| `features/tickets/ActivityTimeline.test.tsx` | 4 | order/empty/error/paging |
+| `features/labels/labels*.test.tsx` | 15 | picker, manager, edit/delete, 409 toast, filter |
+| `features/tickets/CommentsPanel*.test.tsx` | 5+ | edit/delete UI, edited indicator, 400 toast |
+| `features/account/NotificationSettings.test.tsx` + `features/tickets/useWatch/useActivity` | 6+ | email toggle, watch button |

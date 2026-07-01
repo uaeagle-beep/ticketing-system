@@ -18,7 +18,7 @@
 - **Authenticated (token required):** everything else, including `GET /api/auth/me`. Missing/invalid/expired/logged-out token → **401**.
 - **Verified required:** authenticated endpoints additionally require `email_verified=true`. An authenticated-but-unverified state is not reachable because login does not issue a session to unverified accounts (it returns 403 first). A token whose user somehow became unverified → **403 account_not_verified**.
 - **Blocked users (ADR-0007):** a blocked account cannot authenticate. Login returns **401 account_blocked**; any surviving session token resolves to **401 unauthorized** (blocked sessions are purged on block). "Blocked == not authenticated" is uniform across login and every protected request.
-- **Authorization (ADR-0007):** two principal kinds. An **admin** (`isAdmin=true`) ignores team scoping. A **member** may only read/write resources of teams they belong to. `/api/admin/*` requires `isAdmin` (else **403 forbidden**). Team-scoped endpoints (teams list/wip-limits, epics, tickets, board, comments) require admin-or-membership; team **create/rename/delete** are admin-only. Enforcement is **server-side per resource**, not merely list filtering.
+- **Authorization (ADR-0007):** two principal kinds. An **admin** (`isAdmin=true`) ignores team scoping. A **member** may only read/write resources of teams they belong to. `/api/admin/*` requires `isAdmin` (else **403 forbidden**). Team-scoped endpoints (teams list/wip-limits/members, epics, tickets, board, comments) require admin-or-membership; team **create/rename/delete** are admin-only. Comment **edit** is author-only; comment **delete** is author-or-admin (F-12, ADR-0015). Enforcement is **server-side per resource**, not merely list filtering.
 
 ---
 
@@ -49,6 +49,7 @@ Every non-2xx response uses this exact shape:
 | 403 | `forbidden` | Authenticated but not allowed: non-admin in admin zone; member acting on a non-member team's resource; reset-password on a blocked user (ADR-0007) |
 | 404 | `not_found` | Resource addressed in the URL path (`/{id}`) does not exist |
 | 409 | `duplicate_team_name` | Team create/rename collides case-insensitively |
+| 409 | `duplicate_label_name` | Label create/rename collides case-insensitively **within the team** (Wave 2, ADR-0016) |
 | 409 | `team_has_children` | Delete team that has tickets or epics |
 | 409 | `epic_referenced_by_tickets` | Delete epic referenced by ≥1 ticket |
 | 409 | `wip_limit_reached` | Create/move a ticket INTO a (team, state) whose WIP limit is already reached |
@@ -327,6 +328,18 @@ Replaces this team's per-state WIP caps in one request. The body is a map of can
               "done": ["Enter a number no greater than 999."] } } }
 ```
 
+### 4.6 `GET /api/teams/{id}/members` — admin OR member of the team (ADR-0017, Wave 2)
+
+Member-visible list of a team's members for pickers (assignee / watch / label). Resolve the team first: unknown id → **404 not_found**; a member who is not in the team → **403 forbidden** (resolve-then-check). Returns the team's members only — admins are global and use the admin surface; the assignee-eligibility rule (team members ∪ admins) stays enforced server-side on assignment. `displayName` is computed server-side (`name?.trim() || email`). Ordered by display name.
+
+**200 OK** →
+```json
+[ { "id": "8e29...", "displayName": "Alex Doe", "isAdmin": false },
+  { "id": "a71f...", "displayName": "Sam Lee", "isAdmin": true } ]
+```
+
+**Errors:** `401 unauthorized`; `403 forbidden` (non-member non-admin); `404 not_found` (unknown team).
+
 ---
 
 ## 5. Epics
@@ -395,17 +408,21 @@ Ticket object (detail):
   "title": "Login fails", "body": "Steps to reproduce...",
   "dueDate": "2026-07-05", "isOverdue": false,
   "assignees": [ { "id": "8e29...", "displayName": "Alex Doe" } ],
+  "labels": [ { "id": "lb01...", "name": "Backend", "color": "#3b82f6" } ],
   "createdAt": "2026-06-22T09:15:00Z", "modifiedAt": "2026-06-23T12:40:00Z",
-  "createdBy": "8e29c1b4-...", "createdByEmail": "alex@dataart.com", "createdByName": "Alex Doe"
+  "createdBy": "8e29c1b4-...", "createdByEmail": "alex@dataart.com", "createdByName": "Alex Doe",
+  "isWatching": true
 }
 ```
 - `epicId`/`epicTitle` are `null` when no epic. `type` ∈ {`bug`,`feature`,`fix`}; `state` ∈ {`new`,`ready_for_implementation`,`in_progress`,`ready_for_acceptance`,`done`}.
 - **`priority`** (F-03, ADR-0009) ∈ {`low`,`medium`,`high`,`urgent`}; always present; defaults to `medium`.
 - **`dueDate`** (F-08) is an optional calendar day `"YYYY-MM-DD"` (UTC, no time-of-day; `null` when unset). **`isOverdue`** is server-computed: `dueDate != null && dueDate < today(UTC) && state != done`.
 - **`assignees`** (F-02) is an array of `{ id, displayName }` (empty when unassigned); `displayName = name?.trim() || email`, computed server-side.
+- **`labels`** (Wave 2, ADR-0016) is an array of `{ id, name, color }` (empty when none); `color` is `#rrggbb` (lowercased). Present on **both** the ticket detail and the board card. Assignment is via `PUT /api/tickets/{id}/labels` (§6.8); labels never bump `modified_at` and raise no events.
 - `createdByName` is the creator's optional display name (`null` when unset); the SPA shows `displayName(createdByName, createdByEmail)` in the "Created by" line.
+- **`isWatching`** (Wave 2, §6.7) is `true` when the **current user** watches this ticket; drives the detail watch toggle. Board cards do not carry it (keeps the board query lean).
 
-### 6.1 `GET /api/tickets?teamId={teamId}&type=&epicId=&search=&priority=&assigneeId=&assignedToMe=&dueFilter=` — authenticated
+### 6.1 `GET /api/tickets?teamId={teamId}&type=&epicId=&search=&priority=&assigneeId=&assignedToMe=&dueFilter=&labelId=` — authenticated
 Board data for one team. `teamId` **required**. Optional filters combine with **AND** (A24):
 - `type` — one of the three enum values; filters by type.
 - `epicId` — UUID; filters to tickets referencing that epic.
@@ -414,6 +431,7 @@ Board data for one team. `teamId` **required**. Optional filters combine with **
 - **`assigneeId`** (F-02) — UUID; filters to tickets assigned to that user.
 - **`assignedToMe`** (F-02) — `true` ⇒ filters to the current user's assignments (sugar for `assigneeId = me`). If both `assignedToMe=true` and `assigneeId` are sent, **`assignedToMe` wins**.
 - **`dueFilter`** (F-08) — one of {`overdue`,`has_due_date`,`no_due_date`}; `overdue` ⇒ `due_date < today AND state != done`; bad value ⇒ `400 validation_error`.
+- **`labelId`** (Wave 2, ADR-0016) — UUID; filters to tickets carrying that label. An unknown id simply matches nothing (no 400, consistent with `epicId`).
 
 All new filters run inside the already team-scoped query, so they cannot reach another team's data.
 
@@ -498,7 +516,7 @@ Dedicated minimal endpoint for column moves; persists immediately (V25).
 ### 6.6 `DELETE /api/tickets/{id}` — authenticated
 Deletes the ticket and **cascades to its comments** (V22, the only mandated cascade). UI confirms first (FR-E4-6); confirmation is a client concern.
 
-**204 No Content.** **Errors:** `404 not_found`. Deleting a ticket also cascades to its `ticket_assignees` (F-02).
+**204 No Content.** **Errors:** `404 not_found`. Deleting a ticket also cascades to its `ticket_assignees` (F-02) and `ticket_watchers`/`activity_entries` (Wave 2). A `ticket_deleted` **notification** is fanned out to watchers **before** the row is removed and **outlives** the ticket (its `ticketId` becomes `null`; the SPA renders it as a non-navigable tombstone, ADR-0014 §6.6).
 
 ### 6.7 `PUT /api/tickets/{id}/assignees` — authenticated (M(team of ticket), F-02)
 Replaces the ticket's **full** assignee set (authoritative complete set, mirroring wip-limits / admin `PUT .../teams`).
@@ -515,6 +533,47 @@ Replaces the ticket's **full** assignee set (authoritative complete set, mirrori
 
 **Errors:** `404 not_found` (unknown ticket); `403 forbidden` (caller not admin/member of the ticket's team); `400 validation_error` keyed `userIds` (unknown or ineligible user).
 
+### 6.7a `PUT /api/tickets/{id}/labels` — authenticated (M(team of ticket), Wave 2, ADR-0016)
+Replaces the ticket's **full** label set (authoritative complete set, mirroring assignees §6.7).
+
+**Request**
+```json
+{ "labelIds": ["lb01-backend", "lb02-urgent"] }
+```
+**200 OK** → the updated **ticket detail** (so the SPA refreshes card + detail from one response); the body carries the new `labels[]`.
+
+- **Semantics:** the request is the authoritative complete set. The service de-duplicates ids, diffs against the current set (add new, remove absent, leave unchanged). This never advances `modified_at` (labels are metadata) and raises **no** event (W2-LABEL-NOEVENTS). `labelIds` null/omitted ⇒ the empty set (clears all labels).
+- **Eligibility (payload rule → 400, not 403):** the caller must first pass team access on the ticket (`403 forbidden` otherwise). Then each requested id must reference an **existing label that belongs to the ticket's team**; an unknown OR cross-team id ⇒ `400 validation_error` keyed `labelIds` ("One or more labels do not exist or belong to another team.").
+
+**Errors:** `404 not_found` (unknown ticket); `403 forbidden` (caller not admin/member of the ticket's team); `400 validation_error` keyed `labelIds` (unknown or cross-team label).
+
+### 6.8 Watch / unwatch (Wave 2, M(team of ticket), ADR-0013)
+
+A **watcher** receives in-app notifications (and coalesced email) for a ticket's events, minus their own actions. Auto-watch triggers: creating the ticket, being added as an assignee, adding a comment (§6.3 of WAVE2_DESIGN). Manual watch/unwatch below. All three resolve the ticket → **404 not_found**, then `RequireTeamAccess` → **403 forbidden**. A stale watcher (lost team access) is skipped at read and fan-out but their row is preserved. **Watching never bumps `modified_at`.**
+
+**`GET /api/tickets/{id}/watchers`** → **200**
+```json
+{ "watching": true, "watchers": [ { "id": "8e29...", "displayName": "Alex Doe" } ] }
+```
+`watching` is the **caller's** own flag; `watchers` is the full (access-filtered) list.
+
+**`POST /api/tickets/{id}/watch`** — idempotent → **200** `{ "watching": true }`.
+**`DELETE /api/tickets/{id}/watch`** — idempotent → **200** `{ "watching": false }`.
+**Errors (all):** `404 not_found`; `403 forbidden`; `401`.
+
+### 6.9 `GET /api/tickets/{id}/activity` — M(team of ticket) (Wave 2, ADR-0012)
+
+The ticket's activity timeline, **newest-first**, keyset-paginated. Resolve ticket → **404**, `RequireTeamAccess` → **403**. `limit` clamped to `[1,100]` (default 50); `cursor` = opaque base64 of the last item's `(createdAt,id)`. This is the user-facing per-ticket history, distinct from any SEC-3 admin audit.
+
+**200 OK**
+```json
+{ "items": [
+    { "id":"ac1...", "eventType":"ticket_moved", "summary":"Alex Doe moved this from In progress to Done",
+      "actorId":"8e29...", "actorDisplayName":"Alex Doe", "createdAt":"2026-07-01T14:00:00Z" }
+  ], "hasMore": false, "nextCursor": null }
+```
+**Errors:** `404 not_found`; `403 forbidden`; `401`.
+
 ---
 
 ## 7. Comments
@@ -523,9 +582,10 @@ Replaces the ticket's **full** assignee set (authoritative complete set, mirrori
 
 Comment object:
 ```json
-{ "id": "cm01...", "ticketId": "tk1042...", "authorId": "8e29c1b4-...", "authorEmail": "alex@dataart.com", "authorName": "Alex Doe", "body": "Looks fixed.", "createdAt": "2026-06-23T13:00:00Z" }
+{ "id": "cm01...", "ticketId": "tk1042...", "authorId": "8e29c1b4-...", "authorEmail": "alex@dataart.com", "authorName": "Alex Doe", "body": "Looks fixed.", "createdAt": "2026-06-23T13:00:00Z", "edited": false, "editedAt": null }
 ```
 - `authorName` is the author's optional display name (`null` when unset); the SPA shows `displayName(authorName, authorEmail)`.
+- `edited` (Wave 2, F-12) is `true` once the body has been edited; `editedAt` is the UTC edit timestamp (`null` when never edited).
 
 ### 7.1 `GET /api/tickets/{id}/comments` — authenticated
 Lists a ticket's comments **oldest-first** (V23, FR-E5-4).
@@ -544,7 +604,92 @@ Lists a ticket's comments **oldest-first** (V23, FR-E5-4).
 - **Does NOT touch the ticket's `modifiedAt`** (V21) → the card does not reorder on the board (EC8).
 **Errors:** `404 not_found` (unknown ticket); `400 validation_error` (blank body).
 
-> Comments are immutable in mandatory scope: there is **no** PUT/PATCH/DELETE comment endpoint (V24, US-COMMENT-3). Edit/delete-own-comment is an explicit stretch feature only.
+### 7.3 `PUT /api/comments/{id}` — author only (F-12, Wave 2, ADR-0015)
+
+Edit own comment. Note the path is the **top-level** `/api/comments/{id}` (a comment id is globally unique; the author check is the primary gate). Authorization ordering (anti-IDOR): resolve the comment → **404 not_found** if absent; resolve its ticket's team → **403 forbidden** if the caller cannot see the ticket; then require `authorId == currentUserId` → else **403 forbidden**. **No admin override on edit** — even an admin may not edit another user's words (ADR-0015).
+
+**Request**
+```json
+{ "body": "Actually still broken on Safari." }
+```
+- `body`: required, non-empty after trim, ≤ 20000 chars.
+
+**200 OK** → the updated comment object (`edited: true`, `editedAt` = now).
+- **No-op rule:** if the normalized new body equals the stored body, nothing is persisted, `editedAt` is **not** set/advanced, and the unchanged object is returned (mirrors the `modifiedAt` no-op philosophy).
+- **Does NOT touch the ticket's `modifiedAt`.**
+
+**Errors:** `404 not_found` (unknown comment); `403 forbidden` (not the author, or no team access); `400 validation_error` (blank/oversize body).
+
+### 7.4 `DELETE /api/comments/{id}` — author OR admin (F-12, Wave 2, ADR-0015)
+
+Delete a comment. Same resolve-then-check ordering as §7.3. Then require `authorId == currentUserId` **OR** the caller is an admin (moderation override, ADR-0015) → else **403 forbidden**.
+
+**204 No Content.** Hard delete of the comment row.
+
+**Errors:** `404 not_found` (unknown comment); `403 forbidden` (not author and not admin, or no team access).
+
+---
+
+## 7a. Notifications & settings (Wave 2, Self, ADR-0013)
+
+In-app notifications are **Self-scoped by construction** — every route targets the authenticated recipient; no other user's notification id is addressable (strongest anti-IDOR, same posture as `/api/me/*`). Comment **edited/deleted** raise activity only (no notification); everything else a watcher cares about notifies. Refresh in the SPA is **polling + refetch-on-focus** (no websockets, ADR-0016). Email is coalesced by a background worker (ADR-0014); in-app is instant.
+
+Notification object:
+```json
+{ "id": "nt01...", "eventType": "ticket_moved", "summary": "Alex Doe moved this from New to In progress",
+  "ticketId": "tk1042...", "commentId": null, "actorId": "8e29...", "actorDisplayName": "Alex Doe",
+  "createdAt": "2026-07-01T14:00:00Z", "readAt": null }
+```
+- `summary` is rendered once at fan-out (display-cased). `readAt` `null` ⇒ unread. **`ticketId` `null` ⇒ deleted-ticket tombstone** (non-navigable; still markable).
+
+### 7a.1 `GET /api/notifications?limit=20&cursor=<opaque>` — Self
+Newest-first (`createdAt DESC, id DESC`). `limit` clamped to `[1,50]` (default 20); `cursor` = opaque base64 of the last item's `(createdAt,id)` (keyset pagination). **200**
+```json
+{ "items": [ /* NotificationDto[] */ ], "unreadCount": 3, "hasMore": true, "nextCursor": "..." }
+```
+`unreadCount` is included so the bell updates from the same call. **Errors:** `401`.
+
+### 7a.2 `GET /api/notifications/unread-count` — Self
+The cheap poll target. **200** `{ "unreadCount": 3 }`. **Errors:** `401`.
+
+### 7a.3 `POST /api/notifications/{id}/read` — Self
+Marks the addressed notification read (`readAt = now` if null; idempotent). Resolves by id **and** `recipientId == currentUserId`; another user's id ⇒ **404 not_found** (self-owned 404-masking). **200** `{ "unreadCount": <new count> }`. **Errors:** `404`; `401`.
+
+### 7a.4 `POST /api/notifications/read-all` — Self
+Marks all the caller's unread rows read. **200** `{ "unreadCount": 0 }`. **Errors:** `401`.
+
+### 7a.5 `GET /api/me/notification-settings` — Self
+**200** `{ "emailNotificationsEnabled": true }`. Suppresses **email only** (in-app always created; the worker skips email-off recipients and marks their rows emailed without sending). **Errors:** `401`.
+
+### 7a.6 `PUT /api/me/notification-settings` — Self
+**Request** `{ "emailNotificationsEnabled": false }` → **200** with the same shape. **Errors:** `400 validation_error` (missing flag); `401`.
+
+---
+
+## 7b. Labels (Wave 2, ADR-0016)
+
+> **Authorization (ADR-0007):** labels are **team-scoped** and **member-managed** — every endpoint is **M(team)** (admin, or any member of the label's team). Each resolves the target team/label first (**404 not_found**) then checks access (**403 forbidden**) — 404-then-403 ordering (anti-IDOR). A label name is unique **within a team**, case-insensitively (two teams may each have "bug"); a collision ⇒ **409 duplicate_label_name**. Delete is disposable (no in-use guard): the label and its ticket associations cascade away. Labels raise **no** activity/notification events.
+
+Label object:
+```json
+{ "id": "lb01...", "teamId": "f1c2...", "name": "Backend", "color": "#3b82f6" }
+```
+- `name` is trimmed, non-empty, ≤ **50** chars. `color` is `#rrggbb` (validated `^#[0-9a-fA-F]{6}$`, stored lowercased).
+
+### 7b.1 `GET /api/labels?teamId={teamId}` — M(team)
+`teamId` **required**. Resolve team → **404**, `RequireTeamAccess` → **403**. Returns the team's labels ordered by normalized name.
+**200** `[ { "id":"lb01...", "teamId":"f1...", "name":"Backend", "color":"#3b82f6" } ]`. **Errors:** `400 validation_error` (missing `teamId`); `404`; `403`; `401`.
+
+### 7b.2 `POST /api/labels` — M(team)
+**Request** `{ "teamId": "f1...", "name": "  Backend  ", "color": "#3B82F6" }` — `name` trimmed + required, `color` required + `#rrggbb` (lowercased). **201** → the created **Label**. **Errors:** `400 validation_error` (keyed `name`/`color`/`teamId`); `404` (unknown team); `403`; `409 duplicate_label_name` (same normalized name already in the team).
+
+### 7b.3 `PUT /api/labels/{id}` — M(team of label)
+**Request** `{ "name": "Backend", "color": "#2563eb" }`. Resolve label → **404**, `RequireTeamAccess(label.teamId)` → **403**. Team is immutable. A no-op (same normalized name + color) persists nothing. **200** → the updated **Label**. **Errors:** `404`; `403`; `400`; `409 duplicate_label_name` (collides with a *different* label in the same team).
+
+### 7b.4 `DELETE /api/labels/{id}` — M(team of label)
+Resolve → **404**, `RequireTeamAccess` → **403**. Removes the label and its `ticket_labels` rows (cascade). **No** in-use guard (a label is disposable metadata). **204 No Content.** **Errors:** `404`; `403`; `401`.
+
+> Label **assignment** on a ticket is a ticket sub-resource: `PUT /api/tickets/{id}/labels` (§6.7a).
 
 ---
 

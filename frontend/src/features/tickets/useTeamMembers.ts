@@ -1,49 +1,42 @@
 // Candidate assignees for a team = team members ∪ admins (F-02 eligibility, ADR-0009).
 //
-// CONTRACT GAP (documented for the Architect): there is no member-visible endpoint that lists a
-// team's members (GET /api/admin/users is admin-only; /api/auth/me exposes only the caller's own
-// memberships). The minimal consistent choice for Wave 1 is to source the candidate pool from the
-// admin users list when the caller is an admin, and to degrade to an EMPTY pool for a non-admin
-// member (who then can filter by "Assigned to me" and remove existing assignees, but cannot add
-// arbitrary users from the UI). A future backend endpoint (e.g. GET /api/teams/{id}/members,
-// member-visible) would let members pick assignees too. The backend already enforces eligibility
-// (400 keyed userIds), so this is purely a UI affordance gap, not a security one.
+// Wave 2 (§8bis / ADR-0017): this now sources from the member-visible endpoint
+// GET /api/teams/{id}/members, so a NON-admin member can pick teammates too (closing the Wave-1
+// gap where the pool degraded to empty for members). The backend still enforces eligibility
+// server-side (400 keyed userIds on assign), so this is purely the UI candidate pool. Admins are
+// global and use the admin surface; the response is the team's members only (server decision).
 
 import { useQuery } from '@tanstack/react-query';
-import { adminUsersApi } from '@/api/endpoints';
+import { teamsApi } from '@/api/endpoints';
 import type { AssigneeRef } from '@/api/types';
-import { useAuth } from '@/auth/AuthContext';
-import { displayName } from '@/lib/displayName';
 
 /**
- * Returns the eligible-assignee candidates for a team (members ∪ admins), as AssigneeRef[]. Only
- * queries when the caller is an admin (the sole listing source today); otherwise returns an empty
- * pool. Safe to call unconditionally.
+ * Returns the eligible-assignee candidates for a team (its members), as AssigneeRef[]. Queries for
+ * any team member (no admin gate), enabled only when a teamId is given. `canList` stays true whenever
+ * a team is selected so callers can render the picker for members and admins alike. Safe to call
+ * unconditionally.
  */
 export function useTeamMembers(teamId: string | undefined): {
   candidates: AssigneeRef[];
   isLoading: boolean;
   canList: boolean;
 } {
-  const { user } = useAuth();
-  const canList = Boolean(user?.isAdmin);
-
   const query = useQuery({
-    queryKey: ['admin-users-for-assignees'],
-    queryFn: ({ signal }) => adminUsersApi.list(signal),
-    enabled: canList,
+    queryKey: ['team-members', teamId],
+    queryFn: ({ signal }) => teamsApi.members(teamId as string, signal),
+    enabled: !!teamId,
     staleTime: 60_000,
   });
 
-  if (!canList || !teamId) {
-    return { candidates: [], isLoading: false, canList };
+  if (!teamId) {
+    return { candidates: [], isLoading: false, canList: false };
   }
 
-  const users = query.data ?? [];
-  const candidates: AssigneeRef[] = users
-    .filter((u) => u.isAdmin || u.teams.some((t) => t.id === teamId))
-    .map((u) => ({ id: u.id, displayName: displayName(u.name, u.email) }))
+  const members = query.data ?? [];
+  // displayName is already computed server-side (name?.trim() || email); do not recompute.
+  const candidates: AssigneeRef[] = members
+    .map((m) => ({ id: m.id, displayName: m.displayName }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-  return { candidates, isLoading: query.isLoading, canList };
+  return { candidates, isLoading: query.isLoading, canList: true };
 }

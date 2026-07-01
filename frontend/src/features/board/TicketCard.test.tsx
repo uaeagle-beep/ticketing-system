@@ -16,6 +16,7 @@ const ticket: TicketCardModel = {
   dueDate: null,
   isOverdue: false,
   assignees: [],
+  labels: [],
   // ISO-8601 UTC; relativeTime renders something containing "ago" or a date.
   modifiedAt: '2026-06-23T12:40:00Z',
 };

@@ -59,6 +59,36 @@ public sealed class TeamService
             .ToList();
     }
 
+    /// <summary>
+    /// List a team's members for pickers (Wave-1 debt, WAVE2 §5.8 / ADR-0017). M(team): resolve the
+    /// team first (404 if absent) then check access (403 for a non-member non-admin) — §3.3 ordering.
+    /// Returns the team's members only (admins are global and use the admin surface); each row carries
+    /// <c>displayName = name?.Trim() || email</c> and the user's global <c>isAdmin</c> flag. Ordered by
+    /// display name (case-insensitive).
+    /// </summary>
+    public async Task<IReadOnlyList<TeamMemberDto>> ListMembersAsync(Guid id, CancellationToken ct)
+    {
+        // Resolve then check (404-then-403): a non-member must not learn whether the team exists.
+        var teamExists = await _db.Teams.AnyAsync(t => t.Id == id, ct);
+        if (!teamExists)
+            throw ServiceException.NotFound("Team not found.");
+        _currentUser.RequireTeamAccess(id);
+
+        var rows = await _db.UserTeams.AsNoTracking()
+            .Where(m => m.TeamId == id)
+            .Select(m => new { m.User!.Id, m.User.Email, m.User.Name, m.User.IsAdmin })
+            .ToListAsync(ct);
+
+        // displayName = name?.Trim() || email (computed in memory so Trim/coalesce need not translate).
+        return rows
+            .Select(u => new TeamMemberDto(
+                u.Id,
+                string.IsNullOrWhiteSpace(u.Name) ? u.Email : u.Name!.Trim(),
+                u.IsAdmin))
+            .OrderBy(m => m.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     public async Task<TeamDto> CreateAsync(CreateTeamRequest request, CancellationToken ct)
     {
         _currentUser.RequireAdmin(); // team CRUD is admin-only (ADR-0007, §4.9)

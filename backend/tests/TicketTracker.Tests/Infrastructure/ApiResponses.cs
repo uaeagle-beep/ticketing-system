@@ -73,6 +73,19 @@ public sealed record AssigneeRefDto(
     [property: JsonPropertyName("id")] Guid Id,
     [property: JsonPropertyName("displayName")] string DisplayName);
 
+// A label as returned by the label CRUD endpoints (Wave 2, §5.6, ADR-0016).
+public sealed record LabelDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("teamId")] Guid TeamId,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("color")] string Color);
+
+// A lightweight label reference (id + name + color) on tickets (Wave 2, §8.5).
+public sealed record LabelRefDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("color")] string Color);
+
 public sealed record TicketDto(
     [property: JsonPropertyName("id")] Guid Id,
     [property: JsonPropertyName("teamId")] Guid TeamId,
@@ -91,7 +104,11 @@ public sealed record TicketDto(
     [property: JsonPropertyName("priority")] string Priority = "medium",
     [property: JsonPropertyName("dueDate")] DateOnly? DueDate = null,
     [property: JsonPropertyName("isOverdue")] bool IsOverdue = false,
-    [property: JsonPropertyName("assignees")] List<AssigneeRefDto>? Assignees = null);
+    [property: JsonPropertyName("assignees")] List<AssigneeRefDto>? Assignees = null,
+    // Wave 2 (§6.7): whether the current user watches this ticket.
+    [property: JsonPropertyName("isWatching")] bool IsWatching = false,
+    // Wave 2 (§8.5, ADR-0016): the ticket's labels.
+    [property: JsonPropertyName("labels")] List<LabelRefDto>? Labels = null);
 
 public sealed record TicketCardDto(
     [property: JsonPropertyName("id")] Guid Id,
@@ -105,7 +122,9 @@ public sealed record TicketCardDto(
     [property: JsonPropertyName("priority")] string Priority = "medium",
     [property: JsonPropertyName("dueDate")] DateOnly? DueDate = null,
     [property: JsonPropertyName("isOverdue")] bool IsOverdue = false,
-    [property: JsonPropertyName("assignees")] List<AssigneeRefDto>? Assignees = null);
+    [property: JsonPropertyName("assignees")] List<AssigneeRefDto>? Assignees = null,
+    // Wave 2 (§8.5, ADR-0016): the card's labels.
+    [property: JsonPropertyName("labels")] List<LabelRefDto>? Labels = null);
 
 public sealed record BoardColumnDto(
     [property: JsonPropertyName("state")] string State,
@@ -131,4 +150,62 @@ public sealed record CommentDto(
     [property: JsonPropertyName("authorEmail")] string AuthorEmail,
     [property: JsonPropertyName("body")] string Body,
     [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
-    [property: JsonPropertyName("authorName")] string? AuthorName = null);
+    [property: JsonPropertyName("authorName")] string? AuthorName = null,
+    // F-12 (WAVE2 §5.2): the comment's edit indicator + timestamp.
+    [property: JsonPropertyName("edited")] bool Edited = false,
+    [property: JsonPropertyName("editedAt")] DateTime? EditedAt = null);
+
+// A team member for the member-visible picker (Wave-1 debt, WAVE2 §5.8 / ADR-0017).
+public sealed record TeamMemberDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("displayName")] string DisplayName,
+    [property: JsonPropertyName("isAdmin")] bool IsAdmin);
+
+// ---------- Wave 2 notifications subsystem (§8) ----------
+
+public sealed record NotificationDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("eventType")] string EventType,
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("ticketId")] Guid? TicketId,
+    [property: JsonPropertyName("commentId")] Guid? CommentId,
+    [property: JsonPropertyName("actorId")] Guid ActorId,
+    [property: JsonPropertyName("actorDisplayName")] string ActorDisplayName,
+    [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
+    [property: JsonPropertyName("readAt")] DateTime? ReadAt);
+
+public sealed record NotificationListDto(
+    [property: JsonPropertyName("items")] List<NotificationDto> Items,
+    [property: JsonPropertyName("unreadCount")] int UnreadCount,
+    [property: JsonPropertyName("hasMore")] bool HasMore,
+    [property: JsonPropertyName("nextCursor")] string? NextCursor);
+
+public sealed record UnreadCountDto(
+    [property: JsonPropertyName("unreadCount")] int UnreadCount);
+
+public sealed record NotificationSettingsDto(
+    [property: JsonPropertyName("emailNotificationsEnabled")] bool EmailNotificationsEnabled);
+
+public sealed record ActivityEntryDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("eventType")] string EventType,
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("actorId")] Guid ActorId,
+    [property: JsonPropertyName("actorDisplayName")] string ActorDisplayName,
+    [property: JsonPropertyName("createdAt")] DateTime CreatedAt);
+
+public sealed record ActivityListDto(
+    [property: JsonPropertyName("items")] List<ActivityEntryDto> Items,
+    [property: JsonPropertyName("hasMore")] bool HasMore,
+    [property: JsonPropertyName("nextCursor")] string? NextCursor);
+
+public sealed record WatcherRefDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("displayName")] string DisplayName);
+
+public sealed record WatchStatusDto(
+    [property: JsonPropertyName("watching")] bool Watching);
+
+public sealed record WatchersDto(
+    [property: JsonPropertyName("watching")] bool Watching,
+    [property: JsonPropertyName("watchers")] List<WatcherRefDto> Watchers);

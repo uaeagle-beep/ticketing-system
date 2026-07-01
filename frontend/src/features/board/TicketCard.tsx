@@ -15,7 +15,7 @@ import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { useNavigate } from 'react-router-dom';
 import type { TicketCard as TicketCardModel } from '@/api/types';
-import { AssigneeAvatars, DueDatePill, PriorityBadge, TypeBadge } from '@/components/Badges';
+import { AssigneeAvatars, DueDatePill, LabelChips, PriorityBadge, TypeBadge } from '@/components/Badges';
 import { stateLabel } from '@/lib/labels';
 import { relativeTime } from '@/lib/time';
 
@@ -72,6 +72,11 @@ export function TicketCard({ ticket }: { ticket: TicketCardModel }) {
         </button>
       </div>
       <div className="ticket-card-title">{ticket.title}</div>
+      {ticket.labels.length > 0 ? (
+        <div className="ticket-card-subrow">
+          <LabelChips labels={ticket.labels} />
+        </div>
+      ) : null}
       {ticket.dueDate || ticket.assignees.length > 0 ? (
         <div className="ticket-card-subrow">
           {ticket.dueDate ? (
@@ -101,6 +106,11 @@ export function TicketCardPreview({ ticket }: { ticket: TicketCardModel }) {
         </div>
       </div>
       <div className="ticket-card-title">{ticket.title}</div>
+      {ticket.labels.length > 0 ? (
+        <div className="ticket-card-subrow">
+          <LabelChips labels={ticket.labels} />
+        </div>
+      ) : null}
       {ticket.dueDate || ticket.assignees.length > 0 ? (
         <div className="ticket-card-subrow">
           {ticket.dueDate ? (

@@ -28,6 +28,7 @@ public static class ErrorStatusMap
         ServiceErrorCode.AccountBlocked => StatusCodes.Status401Unauthorized,
         ServiceErrorCode.NotFound => StatusCodes.Status404NotFound,
         ServiceErrorCode.DuplicateTeamName => StatusCodes.Status409Conflict,
+        ServiceErrorCode.DuplicateLabelName => StatusCodes.Status409Conflict,
         ServiceErrorCode.TeamHasChildren => StatusCodes.Status409Conflict,
         ServiceErrorCode.EpicReferencedByTickets => StatusCodes.Status409Conflict,
         ServiceErrorCode.WipLimitReached => StatusCodes.Status409Conflict,

@@ -8,7 +8,7 @@
 // is available (a non-admin member, since there is no member-listing endpoint), only "Assigned to me"
 // is offered. `assignedToMe` wins over `assigneeId` (documented precedence, §4.2).
 
-import type { AssigneeRef, BoardFilters, DueFilter, Epic, TicketPriority, TicketType } from '@/api/types';
+import type { AssigneeRef, BoardFilters, DueFilter, Epic, Label, TicketPriority, TicketType } from '@/api/types';
 import { dueFilterOptions, priorityOptions, typeOptions } from '@/lib/labels';
 
 interface FilterBarProps {
@@ -18,6 +18,8 @@ interface FilterBarProps {
   total: number;
   // Candidate users for the by-user assignee filter (may be empty when no source is available).
   assigneeOptions?: AssigneeRef[];
+  // The team's labels for the by-label filter (Wave 2, §8.4). Empty when the team has none.
+  labelOptions?: Label[];
   onChange: (next: BoardFilters) => void;
   onClear: () => void;
 }
@@ -28,6 +30,7 @@ export function FilterBar({
   epicsLoading,
   total,
   assigneeOptions = [],
+  labelOptions = [],
   onChange,
   onClear,
 }: FilterBarProps) {
@@ -38,7 +41,8 @@ export function FilterBar({
       filters.priority ||
       filters.assignedToMe ||
       filters.assigneeId ||
-      filters.dueFilter,
+      filters.dueFilter ||
+      filters.labelId,
   );
 
   // The assignee <select> encodes three cases in one control: '' (all), 'me' (assignedToMe), or a
@@ -125,6 +129,22 @@ export function FilterBar({
           </option>
         ))}
       </select>
+
+      {labelOptions.length > 0 ? (
+        <select
+          className="select"
+          aria-label="Filter by label"
+          value={filters.labelId ?? ''}
+          onChange={(e) => onChange({ ...filters, labelId: e.target.value || undefined })}
+        >
+          <option value="">All labels</option>
+          {labelOptions.map((label) => (
+            <option key={label.id} value={label.id}>
+              {label.name}
+            </option>
+          ))}
+        </select>
+      ) : null}
 
       <select
         className="select"

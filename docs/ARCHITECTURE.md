@@ -66,7 +66,7 @@ backend/
 - **Domain:** POCO entities (`User`, `EmailVerificationToken`, `Session`, `Team`, `Epic`, `Ticket`, `Comment`), the two enums (`TicketType`, `TicketState`), and pure invariants (e.g., "title non-empty after trim", "epic.team == ticket.team"). No persistence concerns.
 - **Application:** one service per aggregate (`AuthService`, `TeamService`, `EpicService`, `TicketService`, `CommentService`). Each depends on the `AppDbContext` (exposed via an `IAppDbContext` interface for testability) and on ports: `IPasswordHasher`, `IEmailSender` **[ADR-0004]**, `ITokenGenerator`, `IClock`. Services own all **[BACKEND-ENFORCED]** rules from ANALYSIS §10 (V1–V28). DTOs (request/response records) and `FluentValidation`-style validators live here.
 - **Infrastructure:** `AppDbContext : DbContext` (EF Core model config, indexes, FK behaviors), Npgsql provider wiring, EF migrations, `Argon2PasswordHasher`, `SmtpEmailSender`, `CryptoTokenGenerator`, `SystemClock`.
-- **Api:** thin controllers (no business logic — they map DTO ↔ service calls), authentication middleware **[ADR-0001]**, a global exception-to-ProblemDetails mapper that produces the uniform error envelope, `DatabaseInitializer` hosted service that applies migrations on startup **[ADR-0003]**, health endpoints.
+- **Api:** thin controllers (no business logic — they map DTO ↔ service calls), authentication middleware **[ADR-0001]**, a global exception-to-ProblemDetails mapper that produces the uniform error envelope, `DatabaseInitializer` hosted service that applies migrations on startup **[ADR-0003]**, `NotificationEmailWorker` hosted service (a thin `PeriodicTimer` over `NotificationEmailDispatcher.DrainOnceAsync` — the email outbox, Wave 2 **[ADR-0014]**), health endpoints.
 
 ### 3.3 Cross-cutting
 
@@ -94,6 +94,7 @@ All PKs are `uuid` (GUID), server-generated. All timestamps are UTC `timestamptz
 | `email_verified` | boolean | not null, default false | gate for business access (V5, A1) |
 | `is_admin` | boolean | not null, default false | global admin privilege; admin ignores team scoping (ADR-0007). Existing users promoted to true by the AddUserManagement migration (ASR-5). |
 | `is_blocked` | boolean | not null, default false | hard access denial; blocked ⇒ cannot log in/reset, sessions purged (ADR-0007, ASR-2) |
+| `email_notifications_enabled` | boolean | not null, default true | Wave 2 global email toggle (ADR-0013 §6.8); suppresses **email only** (in-app always created) |
 | `created_at` | timestamptz | not null | server-set UTC |
 
 #### UserTeam  *(membership join — [ADR-0007])*
@@ -192,8 +193,49 @@ Structural twin of `email_verification_tokens` in its own table (distinct TTL, s
 | `author_id` | uuid | FK → User.id, **ON DELETE RESTRICT**, not null | server-set author (V23, A20) |
 | `body` | text | not null | non-empty after trim (V23) |
 | `created_at` | timestamptz | not null | server-set UTC, oldest-first ordering (V23, A21) |
+| `edited_at` | timestamptz | null | Wave 2 F-12: set on a real body change; `null` = never edited (ADR-0015) |
 
 Index `(ticket_id, created_at ASC)` for chronological listing.
+
+#### TicketWatcher  *(subscription join — Wave 2, ADR-0013)*
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | uuid | PK | |
+| `ticket_id` | uuid | FK → Ticket.id, **ON DELETE CASCADE**, not null, indexed | a watch is owned by the ticket |
+| `user_id` | uuid | FK → User.id, **ON DELETE CASCADE**, not null, indexed | a watch carries no authorship (mirrors UserTeam) |
+| `created_at` | timestamptz | not null | when the watch started |
+
+Unique index `ux_ticket_watchers_ticket_user (ticket_id, user_id)` — no double-watch. Auto-watch on create/assign/comment; manual watch/unwatch (§6.3).
+
+#### Notification  *(in-app + email outbox row — Wave 2, ADR-0013/0014)*
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | uuid | PK | |
+| `recipient_id` | uuid | FK → User.id, **ON DELETE CASCADE**, not null | owner of the row |
+| `actor_id` | uuid | FK → User.id, **ON DELETE RESTRICT**, not null | who caused the event |
+| `ticket_id` | uuid | FK → Ticket.id, **ON DELETE SET NULL**, **nullable**, indexed | subject ticket; **SET NULL** so a `ticket_deleted` notification outlives its ticket (§6.6) |
+| `comment_id` | uuid | **nullable, NO FK** | present for comment events; FK-less so a comment delete neither cascade-nukes nor blocks it |
+| `event_type` | varchar(40) | not null, CHECK ∈ event set | canonical event code |
+| `summary` | varchar(500) | not null | rendered once at fan-out |
+| `data_json` | text | null | small structured payload |
+| `created_at` | timestamptz | not null | |
+| `read_at` | timestamptz | null | `null` = unread |
+| `emailed_at` | timestamptz | null | outbox marker + idempotency key (`null` = not emailed) |
+
+Indexes `ix_notifications_recipient_unread (recipient_id, read_at, created_at)` and `ix_notifications_outbox (emailed_at, created_at)`.
+
+#### ActivityEntry  *(per-ticket timeline — Wave 2, ADR-0012)*
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | uuid | PK | |
+| `ticket_id` | uuid | FK → Ticket.id, **ON DELETE CASCADE**, not null, indexed | the timeline dies with the ticket |
+| `actor_id` | uuid | FK → User.id, **ON DELETE RESTRICT**, not null | preserve audit integrity |
+| `event_type` | varchar(40) | not null, CHECK ∈ event set | same event codes as notifications |
+| `summary` | varchar(500) | not null | rendered at record time |
+| `data_json` | text | null | before/after structured payload |
+| `created_at` | timestamptz | not null | |
+
+Index `ix_activity_ticket_created (ticket_id, created_at)`. This is the user-facing per-ticket history — a separate concern from any SEC-3 admin audit (§7bis of WAVE2_DESIGN).
 
 ### 4.2 Enums & storage
 
@@ -202,6 +244,7 @@ Both enums are stored as **canonical lowercase text** with a DB `CHECK` constrai
 - `TicketType`: `bug` | `feature` | `fix`
 - `TicketState`: `new` | `ready_for_implementation` | `in_progress` | `ready_for_acceptance` | `done`
 - `TicketPriority`: `low` | `medium` | `high` | `urgent` (default `medium`, F-03/ADR-0009)
+- `EventType` (Wave 2, ADR-0012; stored + CHECK on `notifications.event_type` and `activity_entries.event_type`): `ticket_created` | `ticket_field_changed` | `ticket_moved` | `ticket_assignees_changed` | `comment_added` | `comment_edited` | `comment_deleted` | `ticket_deleted`
 
 ### 4.3 Referential integrity & cascade policy (V9, V12, V22, V26, A28)
 
@@ -217,6 +260,13 @@ Enforced at **both** the DB (FK behaviors below) **and** the service layer, so d
 | Ticket → TicketAssignee | **CASCADE** | Deleting a ticket drops its assignments (not standalone content — F-02). |
 | User → EmailVerificationToken / PasswordResetToken / Session | **CASCADE** | Auth artifacts are owned by the user. |
 | User → UserTeam / Team → UserTeam | **CASCADE** | Membership is an association, not authored content; dropping a user or team drops its membership rows (ADR-0007). |
+| Ticket → TicketWatcher / User → TicketWatcher | **CASCADE** | A watch is an association (no authorship); drops with either the ticket or the user (Wave 2, ADR-0013). |
+| Ticket → Notification | **SET NULL** (ticket_id nullable) | A `ticket_deleted` notification must OUTLIVE its ticket (tombstone, §6.6). **Deliberately NOT CASCADE.** |
+| User → Notification (recipient) | **CASCADE** | A notification is owned by its recipient (Wave 2). |
+| User → Notification (actor) | **RESTRICT** | Preserve "who did it" integrity (mirrors created_by/author_id). |
+| Notification → Comment | **none (FK-less)** | `comment_id` is deliberately FK-less so a comment delete neither cascade-nukes nor blocks the notification (ADR-0013 §4.3). |
+| Ticket → ActivityEntry | **CASCADE** | The per-ticket timeline dies with the ticket (Wave 2, ADR-0012). |
+| User → ActivityEntry (actor) | **RESTRICT** | Preserve audit integrity. |
 
 The service performs an explicit existence check before delete and returns the proper `409` envelope (with `code`) rather than surfacing a raw FK violation — but the FK RESTRICT is the backstop that guarantees correctness even on a direct API call (EC7).
 
@@ -448,6 +498,9 @@ No secrets in git. `.env.example` (committed, with safe defaults) documents ever
 | `FRONTEND_URL` | api | `http://localhost:8080` | Base for verification links (A30, must be env-configurable so QA links resolve) |
 | `DEFAULT_SIGNUP_TEAM_NAME` | api | `Demo Team` | Team a self-registered user joins after verifying their email (req 8, ADR-0007/0008/0011). Matched by normalized name; **auto-created if missing** at first self-signup verification, race-safely (F-10, ADR-0011 — supersedes the ADR-0008 warn-and-skip clause). The migration still auto-creates nothing (runtime-only). Blank ⇒ step skipped with a warning. |
 | `RUN_MIGRATIONS_ON_STARTUP` | api | `true` | Auto-apply EF migrations **[ADR-0003]** |
+| `NOTIFICATION_WORKER_POLL_SECONDS` | api | `15` | Email outbox worker tick interval (Wave 2, ADR-0014) |
+| `NOTIFICATION_EMAIL_DEBOUNCE_SECONDS` | api | `60` | Coalescing window: min age before a notification is emailed (Wave 2, ADR-0014) |
+| `NOTIFICATIONS_EMAIL_ENABLED` | api | `true` | Master kill-switch for the email worker; `false` ⇒ worker off, in-app unaffected (Wave 2, ADR-0014) |
 | `WEB_PORT` | compose | `8080` | Host port for nginx |
 
 ASP.NET reads `ConnectionStrings__Default` and other `__`-delimited keys natively. Argon2id parameters (memory/iterations/parallelism) are constants in `Argon2PasswordHasher` (tuned for ~100–250ms), not env-tuned.
@@ -529,7 +582,7 @@ ticket-tracker/
         Program.cs
         Controllers/        # Auth, Teams, Epics, Tickets, Comments, Health
         Middleware/         # bearer-auth, exception→ProblemDetails
-        HostedServices/     # DatabaseInitializer (migrate on startup)
+        HostedServices/     # DatabaseInitializer (migrate on startup); NotificationEmailWorker (email outbox, Wave 2)
       TicketTracker.Application/
         Services/           # AuthService, TeamService, EpicService, TicketService, CommentService
         Abstractions/       # IAppDbContext, IPasswordHasher, IEmailSender, ITokenGenerator, IClock

@@ -18,11 +18,13 @@ public sealed class MeController : ControllerBase
 {
     private readonly AuthService _auth;
     private readonly CurrentUserAccessor _currentUser;
+    private readonly NotificationService _notifications;
 
-    public MeController(AuthService auth, CurrentUserAccessor currentUser)
+    public MeController(AuthService auth, CurrentUserAccessor currentUser, NotificationService notifications)
     {
         _auth = auth;
         _currentUser = currentUser;
+        _notifications = notifications;
     }
 
     // ----- Set/clear own display name (§4.5) -----
@@ -41,6 +43,16 @@ public sealed class MeController : ControllerBase
             request ?? new ChangePasswordRequest(null, null), ct);
         return NoContent();
     }
+
+    // ----- Notification settings (email toggle, Wave 2 §6.8) -----
+    [HttpGet("notification-settings")]
+    public async Task<ActionResult<NotificationSettingsDto>> GetNotificationSettings(CancellationToken ct)
+        => Ok(await _notifications.GetSettingsAsync(ct));
+
+    [HttpPut("notification-settings")]
+    public async Task<ActionResult<NotificationSettingsDto>> UpdateNotificationSettings(
+        [FromBody] UpdateNotificationSettingsRequest request, CancellationToken ct)
+        => Ok(await _notifications.UpdateSettingsAsync(request ?? new UpdateNotificationSettingsRequest(null), ct));
 
     private string? ExtractBearerToken()
     {

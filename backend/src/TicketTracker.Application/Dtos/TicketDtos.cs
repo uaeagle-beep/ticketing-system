@@ -60,7 +60,12 @@ public sealed record TicketDetailDto(
     DateTime ModifiedAt,
     Guid CreatedBy,
     string CreatedByEmail,
-    string? CreatedByName);
+    string? CreatedByName,
+    // Wave 2 (§6.7): whether the CURRENT user watches this ticket. Drives the detail watch toggle.
+    // Appended with a default so existing positional call-sites keep compiling.
+    bool IsWatching = false,
+    // Wave 2 (§8.5, ADR-0016): the ticket's labels (id + name + color) for chips.
+    IReadOnlyList<LabelRefDto>? Labels = null);
 
 /// <summary>Compact card payload used inside the board columns (API_CONTRACT §6.1).</summary>
 public sealed record TicketCardDto(
@@ -74,7 +79,9 @@ public sealed record TicketCardDto(
     DateOnly? DueDate,
     bool IsOverdue,
     IReadOnlyList<AssigneeRefDto> Assignees,
-    DateTime ModifiedAt);
+    DateTime ModifiedAt,
+    // Wave 2 (§8.5, ADR-0016): the ticket's labels (id + name + color) for chips.
+    IReadOnlyList<LabelRefDto>? Labels = null);
 
 /// <summary>
 /// One board column. <paramref name="Count"/> is the POST-FILTER number of cards in

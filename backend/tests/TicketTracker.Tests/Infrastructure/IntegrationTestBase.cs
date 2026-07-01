@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace TicketTracker.Tests.Infrastructure;
 
@@ -139,6 +140,20 @@ public abstract class IntegrationTestBase : IDisposable
         login.StatusCode.Should().Be(HttpStatusCode.OK, "a verified account can log in");
         var body = await ReadAsync<LoginDto>(login);
         return (body.Token, body.User.Id, body.User.Email);
+    }
+
+    /// <summary>
+    /// Drive the email outbox drain deterministically (Wave 2, ADR-0014 / §7.5): resolve the
+    /// <c>NotificationEmailDispatcher</c> from a scope and call <c>DrainOnceAsync(Factory.Clock.UtcNow, ...)</c>.
+    /// Returns the number of recipients emailed. Tests advance <c>Factory.Clock</c> past the debounce window
+    /// before draining to observe coalescing; the hosted worker is removed so no timer competes.
+    /// </summary>
+    protected async Task<int> DrainNotificationEmailsAsync()
+    {
+        using var scope = Factory.Services.CreateScope();
+        var dispatcher = scope.ServiceProvider
+            .GetRequiredService<TicketTracker.Application.Services.NotificationEmailDispatcher>();
+        return await dispatcher.DrainOnceAsync(Factory.Clock.UtcNow, CancellationToken.None);
     }
 
     /// <summary>An HttpClient with the given bearer token attached (no auth attached on the base client).</summary>

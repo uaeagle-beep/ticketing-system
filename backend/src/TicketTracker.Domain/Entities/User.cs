@@ -40,6 +40,13 @@ public class User
     /// </summary>
     public bool IsBlocked { get; set; }
 
+    /// <summary>
+    /// Global email-notifications toggle (Wave 2, ADR-0013 / §6.8). Default true. Suppresses email ONLY —
+    /// in-app notifications are always created. The outbox worker skips email-off recipients and marks
+    /// their rows emailed (no send) so they never backlog. Read/set via GET/PUT /api/me/notification-settings.
+    /// </summary>
+    public bool EmailNotificationsEnabled { get; set; } = true;
+
     public DateTime CreatedAt { get; set; }
 
     public ICollection<EmailVerificationToken> VerificationTokens { get; set; } = new List<EmailVerificationToken>();

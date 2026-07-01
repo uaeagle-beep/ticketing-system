@@ -14,6 +14,7 @@ import { TeamsPage } from '@/features/teams/TeamsPage';
 import { EpicsPage } from '@/features/epics/EpicsPage';
 import { UsersPage } from '@/features/users/UsersPage';
 import { AccountPage } from '@/features/account/AccountPage';
+import { NotificationsPage } from '@/features/notifications/NotificationsPage';
 import { NotFoundPage } from '@/components/NotFoundPage';
 
 export function App() {
@@ -38,6 +39,7 @@ export function App() {
           <Route path="/tickets/:id" element={<TicketPage />} />
           <Route path="/teams" element={<TeamsPage />} />
           <Route path="/epics" element={<EpicsPage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/account" element={<AccountPage />} />
           {/* Admin-only Users zone (ADR-0007). Backend re-checks admin on every call. */}
           <Route element={<RequireAdmin />}>

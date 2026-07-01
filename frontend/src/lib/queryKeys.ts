@@ -22,9 +22,23 @@ export const queryKeys = {
       filters.priority ?? null,
       filters.assignedToMe ? 'me' : (filters.assigneeId ?? null),
       filters.dueFilter ?? null,
+      filters.labelId ?? null,
     ] as const,
 
   ticket: (id: string) => ['ticket', id] as const,
 
   comments: (ticketId: string) => ['comments', ticketId] as const,
+
+  // Wave 2 labels (ADR-0016): a team's label set (for pickers + management).
+  labels: (teamId: string) => ['labels', teamId] as const,
+
+  // Wave 2 notifications subsystem.
+  notifications: ['notifications'] as const,
+  notificationsUnread: ['notifications', 'unread-count'] as const,
+
+  activity: (ticketId: string) => ['activity', ticketId] as const,
+
+  watchers: (ticketId: string) => ['watchers', ticketId] as const,
+
+  notificationSettings: ['notification-settings'] as const,
 };

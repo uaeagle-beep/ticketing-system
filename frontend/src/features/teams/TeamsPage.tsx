@@ -19,6 +19,7 @@ import { LoadingState, ErrorState, EmptyState } from '@/components/States';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useToast } from '@/components/toast/ToastContext';
 import { WipLimitsPanel } from './WipLimitsPanel';
+import { LabelsManager } from '@/features/labels/LabelsManager';
 
 export function TeamsPage() {
   const queryClient = useQueryClient();
@@ -33,6 +34,7 @@ export function TeamsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [wipTeamId, setWipTeamId] = useState<string | null>(null);
+  const [labelsTeamId, setLabelsTeamId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Team | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.teams });
@@ -188,6 +190,7 @@ export function TeamsPage() {
               const hasChildren = team.ticketCount > 0 || team.epicCount > 0;
               const isEditing = editingId === team.id;
               const isWipOpen = wipTeamId === team.id;
+              const isLabelsOpen = labelsTeamId === team.id;
               return (
                 <Fragment key={team.id}>
                 <tr>
@@ -243,6 +246,14 @@ export function TeamsPage() {
                       >
                         WIP limits
                       </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        aria-expanded={isLabelsOpen}
+                        onClick={() => setLabelsTeamId((cur) => (cur === team.id ? null : team.id))}
+                      >
+                        Labels
+                      </button>
                       {isAdmin ? (
                         <button
                           type="button"
@@ -270,6 +281,13 @@ export function TeamsPage() {
                         onSave={(limits) => wipMutation.mutate({ id: team.id, limits })}
                         onCancel={() => setWipTeamId(null)}
                       />
+                    </td>
+                  </tr>
+                ) : null}
+                {isLabelsOpen ? (
+                  <tr className="wip-panel-row">
+                    <td colSpan={5}>
+                      <LabelsManager teamId={team.id} />
                     </td>
                   </tr>
                 ) : null}

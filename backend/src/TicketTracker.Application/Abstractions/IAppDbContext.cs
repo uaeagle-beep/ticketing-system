@@ -24,6 +24,15 @@ public interface IAppDbContext
     DbSet<UserTeam> UserTeams { get; }
     DbSet<TicketAssignee> TicketAssignees { get; }
 
+    // Wave 2 (ADR-0012/0013): the event backbone's persistence targets.
+    DbSet<TicketWatcher> TicketWatchers { get; }
+    DbSet<Notification> Notifications { get; }
+    DbSet<ActivityEntry> ActivityEntries { get; }
+
+    // Wave 2 (ADR-0016): labels/tags.
+    DbSet<Label> Labels { get; }
+    DbSet<TicketLabel> TicketLabels { get; }
+
     /// <summary>Access to the underlying provider for transactions / connectivity checks.</summary>
     DatabaseFacade Database { get; }
 

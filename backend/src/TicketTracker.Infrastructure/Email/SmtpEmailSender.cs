@@ -54,6 +54,31 @@ public sealed class SmtpEmailSender : IEmailSender
                 "<p>If you did not request a password reset, you can safely ignore this message.</p>",
             ct);
 
+    public Task SendNotificationDigestEmailAsync(string toEmail, IReadOnlyList<string> lines, string deepLinkBase, CancellationToken ct)
+    {
+        var count = lines.Count;
+        var notificationsUrl = $"{deepLinkBase.TrimEnd('/')}/notifications";
+        var textLines = string.Join("\r\n", lines.Select(l => $"- {l}"));
+        var htmlLines = string.Join(string.Empty, lines.Select(l => $"<li>{System.Net.WebUtility.HtmlEncode(l)}</li>"));
+
+        return SendAsync(
+            toEmail,
+            subject: count == 1
+                ? "You have a new update on Ticket Tracker"
+                : $"You have {count} new updates on Ticket Tracker",
+            textBody:
+                "You have new activity on tickets you follow:\r\n\r\n" +
+                textLines + "\r\n\r\n" +
+                "View your notifications:\r\n" + notificationsUrl + "\r\n\r\n" +
+                "You can turn off these emails in your account settings.",
+            htmlBody:
+                "<p>You have new activity on tickets you follow:</p>" +
+                $"<ul>{htmlLines}</ul>" +
+                $"<p><a href=\"{notificationsUrl}\">View your notifications</a></p>" +
+                "<p>You can turn off these emails in your account settings.</p>",
+            ct);
+    }
+
     private async Task SendAsync(string toEmail, string subject, string textBody, string htmlBody, CancellationToken ct)
     {
         var message = new MimeMessage();

@@ -20,10 +20,10 @@ public sealed class TicketServiceModifiedAtTests : IDisposable
     private readonly Guid _userId = Guid.NewGuid();
 
     private TicketService NewTicketService()
-        => new(_ctx.Db, _clock, new FakeCurrentUser(_userId));
+        => new(_ctx.Db, _clock, new FakeCurrentUser(_userId), new NoopDomainEventPublisher());
 
     private CommentService NewCommentService()
-        => new(_ctx.Db, _clock, new FakeCurrentUser(_userId));
+        => new(_ctx.Db, _clock, new FakeCurrentUser(_userId), new NoopDomainEventPublisher());
 
     public TicketServiceModifiedAtTests()
     {

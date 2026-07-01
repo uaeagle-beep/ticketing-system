@@ -25,6 +25,7 @@ const base: TicketCardModel = {
   dueDate: null,
   isOverdue: false,
   assignees: [],
+  labels: [],
   modifiedAt: '2026-06-23T12:40:00Z',
 };
 
