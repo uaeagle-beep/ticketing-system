@@ -31,7 +31,13 @@ public enum EventType
     CommentDeleted,
 
     /// <summary>A ticket was deleted. Notify ONLY — its activity cascades away with the ticket (§6.1/§6.6).</summary>
-    TicketDeleted
+    TicketDeleted,
+
+    /// <summary>A file was attached to a ticket (Wave 3, ADR-0018). Notify + activity (like comment_added).</summary>
+    AttachmentAdded,
+
+    /// <summary>A file attachment was removed (Wave 3, ADR-0018). Activity ONLY (mirrors comment_deleted).</summary>
+    AttachmentDeleted
 }
 
 /// <summary>
@@ -51,6 +57,8 @@ public static class EventTypeCanonical
         EventType.CommentEdited => "comment_edited",
         EventType.CommentDeleted => "comment_deleted",
         EventType.TicketDeleted => "ticket_deleted",
+        EventType.AttachmentAdded => "attachment_added",
+        EventType.AttachmentDeleted => "attachment_deleted",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown event type.")
     };
 
@@ -64,7 +72,9 @@ public static class EventTypeCanonical
         "comment_added",
         "comment_edited",
         "comment_deleted",
-        "ticket_deleted"
+        "ticket_deleted",
+        "attachment_added",
+        "attachment_deleted"
     };
 
     /// <summary>The SQL <c>IN (...)</c> value list for the event_type CHECK constraint.</summary>
@@ -79,6 +89,8 @@ public static class EventTypeCanonical
     {
         EventType.CommentEdited => false,
         EventType.CommentDeleted => false,
+        // attachment_deleted is activity-only (audit-worthy, low-value to email); attachment_added notifies.
+        EventType.AttachmentDeleted => false,
         _ => true
     };
 

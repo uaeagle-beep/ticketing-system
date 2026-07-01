@@ -1,0 +1,127 @@
+{
+  "page": {
+    "title": "Users",
+    "createUser": "+ Create user",
+    "note": "Admins manage all accounts here. Members only see and act within their assigned teams.",
+    "loading": "Loading users…",
+    "empty": {
+      "title": "No users",
+      "message": "Create the first user to get started."
+    },
+    "noMatches": {
+      "title": "No matching users",
+      "message": "No users match the current filters. Try clearing them."
+    }
+  },
+  "table": {
+    "user": "User",
+    "role": "Role",
+    "teams": "Teams",
+    "verified": "Verified",
+    "status": "Status",
+    "created": "Created",
+    "actions": "Actions",
+    "allTeams": "All teams",
+    "noTeams": "—",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "role": {
+    "admin": "Admin",
+    "member": "Member"
+  },
+  "status": {
+    "active": "Active",
+    "unverified": "Unverified",
+    "blocked": "Blocked"
+  },
+  "actions": {
+    "edit": "Edit",
+    "resetPassword": "Reset password",
+    "block": "Block",
+    "unblock": "Unblock"
+  },
+  "resetPasswordDisabledTitle": "Unblock the account before resetting its password.",
+  "toast": {
+    "userUnblocked": "User unblocked.",
+    "userBlocked": "User blocked.",
+    "userCreated": "User created.",
+    "userUpdated": "User updated."
+  },
+  "confirm": {
+    "unblockTitle": "Unblock user?",
+    "blockTitle": "Block user?",
+    "unblockMessage": "Unblock <strong>{{email}}</strong>? They will be able to log in again.",
+    "blockMessage": "Block <strong>{{email}}</strong>? They will be signed out and unable to log in until unblocked."
+  },
+  "filters": {
+    "searchPlaceholder": "Search name or email…",
+    "searchLabel": "Search by name or email",
+    "byRole": "Filter by role",
+    "allRoles": "All roles",
+    "byTeam": "Filter by team",
+    "allTeams": "All teams",
+    "byVerification": "Filter by email verification",
+    "allEmails": "All emails",
+    "verified": "Verified",
+    "unverified": "Unverified",
+    "byStatus": "Filter by status",
+    "allStatuses": "All statuses",
+    "active": "Active",
+    "blocked": "Blocked",
+    "roleAdmin": "Admin",
+    "roleMember": "Member",
+    "clear": "Clear",
+    "count_one": "{{count}} user",
+    "count_other": "{{count}} users"
+  },
+  "create": {
+    "title": "Create user",
+    "email": "Email",
+    "name": "Name",
+    "nameHint": "Optional. Leave blank to show the email.",
+    "autoGenerate": "Generate a strong password automatically",
+    "password": "Password",
+    "passwordHint": "At least 8 characters.",
+    "admin": "Administrator (full access to all teams)",
+    "teams": "Teams",
+    "cancel": "Cancel",
+    "creating": "Creating…",
+    "submit": "Create user",
+    "emailRequired": "Email is required.",
+    "passwordTooShort": "Password must be at least 8 characters, or choose auto-generate.",
+    "createdTitle": "User created",
+    "createdBody": "<strong>{{email}}</strong> was created.",
+    "done": "Done"
+  },
+  "edit": {
+    "title": "Edit user",
+    "name": "Name",
+    "nameHint": "Optional. Leave blank to show the email.",
+    "admin": "Administrator (full access to all teams)",
+    "adminHint": "Admins ignore team scoping. The system always keeps at least one active admin.",
+    "teams": "Teams",
+    "adminTeamsHint": "Admins can access all teams; membership is optional.",
+    "cancel": "Cancel",
+    "saving": "Saving…",
+    "save": "Save changes"
+  },
+  "reset": {
+    "title": "Reset password",
+    "generatedBody": "A new password was generated for <strong>{{email}}</strong>. Their existing sessions have been signed out.",
+    "confirmBody": "Generate a new password for <strong>{{email}}</strong>? This signs them out of all sessions. The new password is shown only once.",
+    "done": "Done",
+    "cancel": "Cancel",
+    "generating": "Generating…",
+    "generate": "Generate new password"
+  },
+  "generatedPassword": {
+    "warning": "Copy this password now — it is shown only once and cannot be retrieved later.",
+    "copied": "Copied",
+    "copy": "Copy"
+  },
+  "teamCheckboxList": {
+    "groupLabel": "Teams",
+    "empty": "No teams exist yet. Create a team first to assign membership."
+  }
+}

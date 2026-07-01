@@ -81,6 +81,79 @@ public sealed class SelfProfileTests : IntegrationTestBase
             .StatusCode.Should().Be(HttpStatusCode.Unauthorized, "no session ⇒ 401 (§4.5)");
     }
 
+    // ---------------- PUT /api/me/profile: locale set / clear / validate (Wave 3 i18n, §5.7) ----------------
+
+    [Fact]
+    public async Task Me_returns_locale_null_for_a_fresh_user()
+    {
+        var (token, _, _) = await RegisterMemberAsync("locale-default@dataart.com");
+        var me = Authed(token);
+
+        (await ReadAsync<UserDto>(await me.GetAsync("/api/auth/me"))).Locale
+            .Should().BeNull("a fresh user has no persisted locale — the SPA falls back to detection / the uk default (ADR-0022)");
+    }
+
+    [Theory]
+    [InlineData("uk")]
+    [InlineData("en")]
+    public async Task Update_profile_sets_a_valid_locale_and_returns_it(string locale)
+    {
+        var (token, _, _) = await RegisterMemberAsync($"locale-set-{locale}@dataart.com");
+        var me = Authed(token);
+
+        var resp = await me.PutAsJsonAsync("/api/me/profile", new { name = (string?)null, locale });
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ReadAsync<UserDto>(resp)).Locale.Should().Be(locale, "a supported locale is persisted and returned in the UserDto (§5.7)");
+
+        // Persisted: /me reflects it (cross-device bootstrap source, ADR-0022).
+        (await ReadAsync<UserDto>(await me.GetAsync("/api/auth/me"))).Locale.Should().Be(locale);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Update_profile_with_blank_or_null_locale_clears_it(string? locale)
+    {
+        var (token, _, _) = await RegisterMemberAsync($"locale-clear-{(locale ?? "null").Length}@dataart.com");
+        var me = Authed(token);
+        await me.PutAsJsonAsync("/api/me/profile", new { name = (string?)null, locale = "uk" });
+
+        var resp = await me.PutAsJsonAsync("/api/me/profile", new { name = (string?)null, locale });
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ReadAsync<UserDto>(resp)).Locale.Should().BeNull("blank/whitespace/null clears the locale to null = unset (§5.7)");
+    }
+
+    [Theory]
+    [InlineData("fr")]
+    [InlineData("EN")]
+    [InlineData("en-US")]
+    [InlineData("xx")]
+    public async Task Update_profile_with_unsupported_locale_is_400_keyed_locale(string locale)
+    {
+        var (token, _, _) = await RegisterMemberAsync($"locale-bad-{locale}@dataart.com");
+        var me = Authed(token);
+
+        var resp = await me.PutAsJsonAsync("/api/me/profile", new { name = (string?)null, locale });
+        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var error = await ReadErrorAsync(resp);
+        error.Code.Should().Be("validation_error");
+        error.Errors.Should().ContainKey("locale", "an unsupported locale is a 400 keyed locale (§5.7)");
+    }
+
+    [Fact]
+    public async Task Update_profile_can_set_name_and_locale_together_without_clobbering_either()
+    {
+        var (token, _, _) = await RegisterMemberAsync("locale-and-name@dataart.com");
+        var me = Authed(token);
+
+        var resp = await me.PutAsJsonAsync("/api/me/profile", new { name = "Оксана", locale = "uk" });
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var user = await ReadAsync<UserDto>(resp);
+        user.Name.Should().Be("Оксана");
+        user.Locale.Should().Be("uk");
+    }
+
     // ---------------- Self-only by construction: no cross-user route ----------------
 
     [Fact]

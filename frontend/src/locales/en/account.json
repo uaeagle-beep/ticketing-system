@@ -1,0 +1,71 @@
+{
+  "title": "Account",
+  "profile": {
+    "heading": "Profile",
+    "email": "Email",
+    "displayName": "Display name",
+    "displayNamePlaceholder": "Shown instead of your email",
+    "save": "Save profile",
+    "saving": "Saving…",
+    "nameTooLong": "Name must be at most {{count}} characters.",
+    "updated": "Profile updated."
+  },
+  "password": {
+    "heading": "Change password",
+    "current": "Current password",
+    "new": "New password",
+    "confirm": "Confirm new password",
+    "change": "Change password",
+    "changing": "Changing…",
+    "enterCurrent": "Enter your current password.",
+    "tooShort": "New password must be at least {{count}} characters.",
+    "doNotMatch": "The new passwords do not match.",
+    "currentIncorrect": "The current password is incorrect.",
+    "changed": "Password changed. Other devices have been signed out."
+  },
+  "notifications": {
+    "heading": "Notifications",
+    "description": "In-app notifications are always on. This controls whether we also email you a digest of updates on tickets you watch.",
+    "emailDigests": "Email me notification digests",
+    "turnedOn": "Email notifications turned on.",
+    "turnedOff": "Email notifications turned off."
+  },
+  "apiKeys": {
+    "heading": "API keys",
+    "description": "Personal access tokens for the public API (<1>/api/v1</1>). Send as <4>Authorization: Bearer ptk_…</4>. Keys are scoped and can never delete data or reach admin.",
+    "newKey": "+ New key",
+    "created": "API key created.",
+    "revoked": "API key revoked.",
+    "loading": "Loading API keys…",
+    "empty": "No API keys yet. Create one above.",
+    "label": "API key",
+    "done": "Done",
+    "form": {
+      "ariaLabel": "Create API key",
+      "name": "Name",
+      "namePlaceholder": "CI pipeline",
+      "scopes": "Scopes",
+      "writeIncludesRead": "includes read.",
+      "create": "Create key",
+      "creating": "Creating…",
+      "cancel": "Cancel"
+    },
+    "table": {
+      "name": "Name",
+      "prefix": "Prefix",
+      "scopes": "Scopes",
+      "lastUsed": "Last used",
+      "status": "Status",
+      "actions": "Actions",
+      "never": "Never",
+      "revoked": "Revoked",
+      "active": "Active",
+      "revoke": "Revoke"
+    },
+    "revokeDialog": {
+      "title": "Revoke API key?",
+      "message": "Revoke <strong>{{name}}</strong>? Any client using it will stop working immediately. This cannot be undone.",
+      "confirmLabel": "Revoke"
+    }
+  }
+}

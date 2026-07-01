@@ -1,6 +1,7 @@
 // Multi-select for team membership: a checkbox per team. Used by the Create and Edit user
 // dialogs. An admin's memberships are ignored by the backend, but assigning them is harmless.
 
+import { useTranslation } from 'react-i18next';
 import type { Team } from '@/api/types';
 
 interface TeamCheckboxListProps {
@@ -11,12 +12,14 @@ interface TeamCheckboxListProps {
 }
 
 export function TeamCheckboxList({ teams, selected, disabled, onToggle }: TeamCheckboxListProps) {
+  const { t } = useTranslation('users');
+
   if (teams.length === 0) {
-    return <p className="field-hint">No teams exist yet. Create a team first to assign membership.</p>;
+    return <p className="field-hint">{t('teamCheckboxList.empty')}</p>;
   }
 
   return (
-    <div className="team-checkbox-list" role="group" aria-label="Teams">
+    <div className="team-checkbox-list" role="group" aria-label={t('teamCheckboxList.groupLabel')}>
       {teams.map((team) => (
         <label key={team.id} className="team-checkbox">
           <input

@@ -7,14 +7,19 @@ using TicketTracker.Application.Services;
 namespace TicketTracker.Api.Middleware;
 
 /// <summary>
-/// Stateful opaque bearer-token authentication (ADR-0001, API_CONTRACT §1). For every
-/// authenticated route it reads <c>Authorization: Bearer &lt;token&gt;</c>, resolves the session
-/// to a verified user, and populates the scoped <see cref="CurrentUserAccessor"/>. Public routes
-/// (auth endpoints + health + non-/api paths) pass through untouched. Any miss on a protected
-/// route → 401 envelope. Tokens are never read from the URL.
+/// Stateful opaque bearer-token authentication (ADR-0001, API_CONTRACT §1) with the Wave-3 API-key path
+/// (ADR-0021, §7.3). For every authenticated route it reads <c>Authorization: Bearer &lt;token&gt;</c>. A
+/// <c>ptk_</c>-prefixed token is routed to <see cref="ApiKeyAuthenticator"/> and is accepted ONLY on
+/// <c>/api/v1/*</c> (a key on any other path → 401, so a leaked key is never an admin/session credential);
+/// everything else keeps the existing <see cref="AuthService.ResolveSessionUserAsync"/> session path. The
+/// resolved principal populates the scoped <see cref="CurrentUserAccessor"/> (with scopes + the is-API-key
+/// marker for the v1 scope gate). Public routes (auth endpoints + health + non-/api paths) pass through
+/// untouched. Any miss on a protected route → 401 envelope. Tokens are never read from the URL.
 /// </summary>
 public sealed class BearerAuthMiddleware
 {
+    private const string ApiKeyPrefix = "ptk_";
+
     private readonly RequestDelegate _next;
     private readonly JsonSerializerOptions _json;
 
@@ -35,7 +40,11 @@ public sealed class BearerAuthMiddleware
         _json = json;
     }
 
-    public async Task InvokeAsync(HttpContext context, AuthService authService, CurrentUserAccessor currentUser)
+    public async Task InvokeAsync(
+        HttpContext context,
+        AuthService authService,
+        ApiKeyAuthenticator apiKeyAuthenticator,
+        CurrentUserAccessor currentUser)
     {
         var path = context.Request.Path.Value ?? string.Empty;
 
@@ -49,6 +58,40 @@ public sealed class BearerAuthMiddleware
 
         var token = ExtractBearerToken(context);
         if (token is null)
+        {
+            await WriteUnauthorizedAsync(context);
+            return;
+        }
+
+        var isV1 = path.StartsWith("/api/v1/", StringComparison.OrdinalIgnoreCase);
+
+        // ----- API-key path (Wave 3, ADR-0021): a ptk_ token routes to the ApiKeyAuthenticator -----
+        if (token.StartsWith(ApiKeyPrefix, StringComparison.Ordinal))
+        {
+            // A key is accepted ONLY on /api/v1/* — a ptk_ token on any other path is 401, so a leaked key
+            // can never reach a session-only or admin surface (least privilege, §7.3).
+            if (!isV1)
+            {
+                await WriteUnauthorizedAsync(context);
+                return;
+            }
+
+            var keyPrincipal = await apiKeyAuthenticator.ResolveAsync(token, context.RequestAborted);
+            if (keyPrincipal is null)
+            {
+                await WriteUnauthorizedAsync(context);
+                return;
+            }
+
+            currentUser.SetApiKey(
+                keyPrincipal.UserId, keyPrincipal.IsAdmin, keyPrincipal.TeamIds.ToHashSet(), keyPrincipal.Scopes);
+            await _next(context);
+            return;
+        }
+
+        // ----- Session path (ADR-0001): the existing opaque-bearer resolution -----
+        // A session bearer is NOT accepted on the public /api/v1 surface (it is the key-only surface, §5.6).
+        if (isV1)
         {
             await WriteUnauthorizedAsync(context);
             return;

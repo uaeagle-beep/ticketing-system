@@ -11,6 +11,7 @@
 //    on the handle still works for mouse/touch users.
 
 import type { CSSProperties, KeyboardEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { useNavigate } from 'react-router-dom';
@@ -20,6 +21,7 @@ import { stateLabel } from '@/lib/labels';
 import { relativeTime } from '@/lib/time';
 
 export function TicketCard({ ticket }: { ticket: TicketCardModel }) {
+  const { t } = useTranslation('board');
   const navigate = useNavigate();
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } =
     useDraggable({
@@ -40,7 +42,7 @@ export function TicketCard({ ticket }: { ticket: TicketCardModel }) {
       className={`ticket-card${isDragging ? ' dragging' : ''}`}
       role="button"
       tabIndex={0}
-      aria-label={`Open ticket: ${ticket.title}`}
+      aria-label={t('card.open', { title: ticket.title })}
       // Open the ticket on click / Enter only. Space is intentionally NOT handled
       // here so it can't conflict with the drag handle's pick-up gesture (A11Y-3).
       onClick={open}
@@ -61,8 +63,8 @@ export function TicketCard({ ticket }: { ticket: TicketCardModel }) {
           ref={setActivatorNodeRef}
           className="ticket-card-handle"
           // aria-label includes the source column so AT users know the starting state.
-          aria-label={`Move ticket: ${ticket.title} (currently ${stateLabel(ticket.state)})`}
-          title="Move ticket"
+          aria-label={t('card.move', { title: ticket.title, state: stateLabel(ticket.state) })}
+          title={t('card.moveTitle')}
           // Keep handle activation from also triggering the card's open handlers.
           onClick={(e) => e.stopPropagation()}
           {...listeners}
@@ -87,7 +89,7 @@ export function TicketCard({ ticket }: { ticket: TicketCardModel }) {
       ) : null}
       <div className="ticket-card-meta">
         <span className="ticket-card-epic" title={ticket.epicTitle ?? undefined}>
-          {ticket.epicTitle ?? 'No epic'}
+          {ticket.epicTitle ?? t('card.noEpic')}
         </span>
         <span className="nowrap">{relativeTime(ticket.modifiedAt)}</span>
       </div>
@@ -97,6 +99,7 @@ export function TicketCard({ ticket }: { ticket: TicketCardModel }) {
 
 // Non-interactive presentation used inside the DragOverlay while dragging.
 export function TicketCardPreview({ ticket }: { ticket: TicketCardModel }) {
+  const { t } = useTranslation('board');
   return (
     <div className="ticket-card drag-overlay-card">
       <div className="ticket-card-top">
@@ -120,7 +123,7 @@ export function TicketCardPreview({ ticket }: { ticket: TicketCardModel }) {
         </div>
       ) : null}
       <div className="ticket-card-meta">
-        <span className="ticket-card-epic">{ticket.epicTitle ?? 'No epic'}</span>
+        <span className="ticket-card-epic">{ticket.epicTitle ?? t('card.noEpic')}</span>
         <span className="nowrap">{relativeTime(ticket.modifiedAt)}</span>
       </div>
     </div>

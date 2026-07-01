@@ -10,6 +10,7 @@
 // Comments panel is shown in edit mode only (a ticket must exist first).
 
 import { useEffect, useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi } from '@/api/endpoints';
@@ -35,8 +36,10 @@ import { LoadingState, ErrorState } from '@/components/States';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useToast } from '@/components/toast/ToastContext';
 import { CommentsPanel } from './CommentsPanel';
+import { AttachmentsPanel } from './AttachmentsPanel';
 import { ActivityTimeline } from './ActivityTimeline';
 import { useToggleWatch } from './useWatch';
+import { useRealtime } from '@/features/realtime/RealtimeProvider';
 
 interface FormState {
   teamId: string;
@@ -72,6 +75,7 @@ function sameIdSet(a: string[], b: string[]): boolean {
 }
 
 export function TicketPage() {
+  const { t } = useTranslation('tickets');
   const { id } = useParams<{ id: string }>();
   const isCreate = !id || id === 'new';
   const navigate = useNavigate();
@@ -88,6 +92,16 @@ export function TicketPage() {
     enabled: !isCreate && !!id,
   });
 
+  // Real-time (Wave 3, ADR-0019): join the ticket group while the detail page is open so a `ticketChanged`
+  // push invalidates this ticket's queries the moment a teammate edits it/comments; leave on unmount. The
+  // team is re-checked server-side before the join, so this never subscribes to a ticket the caller can't see.
+  const { subscribeTicket } = useRealtime();
+  const detailTeamId = ticketQuery.data?.teamId;
+  useEffect(() => {
+    if (isCreate || !id || !detailTeamId) return;
+    return subscribeTicket(id, detailTeamId);
+  }, [isCreate, id, detailTeamId, subscribeTicket]);
+
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [initialized, setInitialized] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormState, string>>>({});
@@ -96,8 +110,7 @@ export function TicketPage() {
   // Shown inline (banner + State field-error); cleared when the user changes the State value.
   const [wipBlocked, setWipBlocked] = useState(false);
 
-  const WIP_BLOCK_MESSAGE =
-    'This status already has the maximum number of tickets — finish existing ones first.';
+  const WIP_BLOCK_MESSAGE = t('form.wipBlocked');
 
   // Initialize the form once: from the loaded ticket (edit) or from defaults
   // with an optional prefilled team (create).
@@ -210,7 +223,7 @@ export function TicketPage() {
       return created;
     },
     onSuccess: (created) => {
-      toast.showSuccess('Ticket created.');
+      toast.showSuccess(t('toast.created'));
       queryClient.invalidateQueries({ queryKey: ['board', created.teamId] });
       queryClient.invalidateQueries({ queryKey: queryKeys.teams });
       navigate(`/tickets/${created.id}`, { replace: true });
@@ -237,7 +250,7 @@ export function TicketPage() {
       return saved;
     },
     onSuccess: (updated) => {
-      toast.showSuccess('Ticket saved.');
+      toast.showSuccess(t('toast.saved'));
       queryClient.setQueryData(queryKeys.ticket(updated.id), updated);
       queryClient.invalidateQueries({ queryKey: ['board', updated.teamId] });
       // A field/state/assignee change writes activity — refresh the timeline (§9.3).
@@ -252,7 +265,7 @@ export function TicketPage() {
   const deleteMutation = useMutation({
     mutationFn: () => ticketsApi.remove(id as string),
     onSuccess: () => {
-      toast.showSuccess('Ticket deleted.');
+      toast.showSuccess(t('toast.deleted'));
       const teamId = ticketQuery.data?.teamId;
       if (teamId) queryClient.invalidateQueries({ queryKey: ['board', teamId] });
       queryClient.invalidateQueries({ queryKey: queryKeys.teams });
@@ -266,9 +279,9 @@ export function TicketPage() {
 
   const validate = (): boolean => {
     const errs: Partial<Record<keyof FormState, string>> = {};
-    if (!form.teamId) errs.teamId = 'Team is required.';
-    if (!form.title.trim()) errs.title = 'Title is required.';
-    if (!form.body.trim()) errs.body = 'Body is required.';
+    if (!form.teamId) errs.teamId = t('form.validation.team');
+    if (!form.title.trim()) errs.title = t('form.validation.title');
+    if (!form.body.trim()) errs.body = t('form.validation.body');
     setFieldErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -311,7 +324,7 @@ export function TicketPage() {
 
   // ---- Render branches ----
   if (!isCreate && ticketQuery.isLoading) {
-    return <LoadingState label="Loading ticket…" />;
+    return <LoadingState label={t('loading')} />;
   }
   if (!isCreate && ticketQuery.isError) {
     return (
@@ -326,7 +339,7 @@ export function TicketPage() {
     <div className="ticket-detail">
       <div>
         <div className="page-header" style={{ marginBottom: 4 }}>
-          <Link to={backTeamId ? `/board?team=${backTeamId}` : '/board'}>← Back to board</Link>
+          <Link to={backTeamId ? `/board?team=${backTeamId}` : '/board'}>{t('backToBoard')}</Link>
           <div className="spacer" />
           {!isCreate && detail ? (
             <button
@@ -335,9 +348,9 @@ export function TicketPage() {
               onClick={() => watchToggle.toggle(detail.isWatching)}
               disabled={watchToggle.isPending}
               aria-pressed={detail.isWatching}
-              title={detail.isWatching ? 'Stop watching this ticket' : 'Watch this ticket for updates'}
+              title={detail.isWatching ? t('watch.stopTitle') : t('watch.startTitle')}
             >
-              {detail.isWatching ? '👁 Watching' : '👁 Watch'}
+              {detail.isWatching ? t('watch.watching') : t('watch.watch')}
             </button>
           ) : null}
           {!isCreate ? (
@@ -347,21 +360,21 @@ export function TicketPage() {
               onClick={() => setConfirmOpen(true)}
               disabled={deleteMutation.isPending}
             >
-              Delete
+              {t('delete')}
             </button>
           ) : null}
         </div>
 
         <h1 style={{ fontSize: 20, marginBottom: 4 }}>
-          {isCreate ? 'New ticket' : detail?.title}
+          {isCreate ? t('newTicket') : detail?.title}
         </h1>
 
         {!isCreate && detail ? (
           <div className="ticket-meta-line">
             <span>{detail.id}</span>
-            <span className="dot">Created by {displayName(detail.createdByName, detail.createdByEmail)}</span>
-            <span className="dot">Created {formatUtc(detail.createdAt)}</span>
-            <span className="dot">Modified {formatUtc(detail.modifiedAt)}</span>
+            <span className="dot">{t('meta.createdBy', { name: displayName(detail.createdByName, detail.createdByEmail) })}</span>
+            <span className="dot">{t('meta.created', { date: formatUtc(detail.createdAt) })}</span>
+            <span className="dot">{t('meta.modified', { date: formatUtc(detail.modifiedAt) })}</span>
           </div>
         ) : null}
 
@@ -379,7 +392,7 @@ export function TicketPage() {
           ) : null}
           <div className="form-grid">
             <div className="field">
-              <label htmlFor="ticket-team">Team</label>
+              <label htmlFor="ticket-team">{t('fields.team')}</label>
               <select
                 id="ticket-team"
                 className="select"
@@ -388,7 +401,7 @@ export function TicketPage() {
                 disabled={saving || teamsQuery.isLoading}
               >
                 <option value="" disabled>
-                  Select a team…
+                  {t('fields.teamPlaceholder')}
                 </option>
                 {teams.map((team) => (
                   <option key={team.id} value={team.id}>
@@ -400,7 +413,7 @@ export function TicketPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="ticket-epic">Epic</label>
+              <label htmlFor="ticket-epic">{t('fields.epic')}</label>
               <select
                 id="ticket-epic"
                 className="select"
@@ -408,7 +421,7 @@ export function TicketPage() {
                 onChange={(e) => updateField('epicId', e.target.value)}
                 disabled={saving || !form.teamId || epicsQuery.isLoading}
               >
-                <option value="">No epic</option>
+                <option value="">{t('fields.noEpic')}</option>
                 {epics.map((epic) => (
                   <option key={epic.id} value={epic.id}>
                     {epic.title}
@@ -418,7 +431,7 @@ export function TicketPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="ticket-type">Type</label>
+              <label htmlFor="ticket-type">{t('fields.type')}</label>
               <select
                 id="ticket-type"
                 className="select"
@@ -426,7 +439,7 @@ export function TicketPage() {
                 onChange={(e) => updateField('type', e.target.value as TicketType)}
                 disabled={saving}
               >
-                {typeOptions.map((opt) => (
+                {typeOptions().map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>
@@ -435,7 +448,7 @@ export function TicketPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="ticket-state">State</label>
+              <label htmlFor="ticket-state">{t('fields.state')}</label>
               <select
                 id="ticket-state"
                 className="select"
@@ -445,7 +458,7 @@ export function TicketPage() {
                 aria-invalid={wipBlocked ? true : undefined}
                 aria-describedby={wipBlocked ? 'ticket-state-error' : undefined}
               >
-                {stateOptions.map((opt) => (
+                {stateOptions().map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>
@@ -459,7 +472,7 @@ export function TicketPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="ticket-priority">Priority</label>
+              <label htmlFor="ticket-priority">{t('fields.priority')}</label>
               <select
                 id="ticket-priority"
                 className="select"
@@ -467,7 +480,7 @@ export function TicketPage() {
                 onChange={(e) => updateField('priority', e.target.value as TicketPriority)}
                 disabled={saving}
               >
-                {priorityOptions.map((opt) => (
+                {priorityOptions().map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>
@@ -476,7 +489,7 @@ export function TicketPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="ticket-due-date">Due date</label>
+              <label htmlFor="ticket-due-date">{t('fields.dueDate')}</label>
               <input
                 id="ticket-due-date"
                 className="input"
@@ -488,10 +501,10 @@ export function TicketPage() {
             </div>
 
             <div className="field full">
-              <label htmlFor="ticket-assignees">Assignees</label>
+              <label htmlFor="ticket-assignees">{t('fields.assignees')}</label>
               {canListAssignees ? (
                 assigneeCandidates.length > 0 ? (
-                  <div id="ticket-assignees" className="assignee-picker" role="group" aria-label="Assignees">
+                  <div id="ticket-assignees" className="assignee-picker" role="group" aria-label={t('fields.assignees')}>
                     {assigneeCandidates.map((u) => (
                       <label key={u.id} className="assignee-option">
                         <input
@@ -505,22 +518,22 @@ export function TicketPage() {
                     ))}
                   </div>
                 ) : (
-                  <span className="muted">No eligible users for this team.</span>
+                  <span className="muted">{t('assignees.noEligible')}</span>
                 )
               ) : (
                 // No member-listing endpoint is available to a non-admin (contract gap); show the
                 // current assignees read-only. Admins can manage assignees; a member cannot add here.
                 <span className="muted">
                   {form.assigneeIds.length > 0
-                    ? `${form.assigneeIds.length} assigned`
-                    : 'Unassigned'}
-                  {' — assignee editing requires an administrator.'}
+                    ? t('assignees.assignedCount', { count: form.assigneeIds.length })
+                    : t('assignees.unassigned')}
+                  {t('assignees.adminOnly')}
                 </span>
               )}
             </div>
 
             <div className="field full">
-              <label htmlFor="ticket-labels">Labels</label>
+              <label htmlFor="ticket-labels">{t('fields.labels')}</label>
               {form.teamId ? (
                 <LabelPicker
                   labels={teamLabels}
@@ -529,12 +542,12 @@ export function TicketPage() {
                   onToggle={toggleLabel}
                 />
               ) : (
-                <span className="muted">Select a team to choose labels.</span>
+                <span className="muted">{t('fields.labelsPlaceholder')}</span>
               )}
             </div>
 
             <div className="field full">
-              <label htmlFor="ticket-title">Title</label>
+              <label htmlFor="ticket-title">{t('fields.title')}</label>
               <input
                 id="ticket-title"
                 className="input"
@@ -547,7 +560,7 @@ export function TicketPage() {
             </div>
 
             <div className="field full">
-              <label htmlFor="ticket-body">Body</label>
+              <label htmlFor="ticket-body">{t('fields.body')}</label>
               <textarea
                 id="ticket-body"
                 className="textarea"
@@ -565,10 +578,10 @@ export function TicketPage() {
               to={backTeamId ? `/board?team=${backTeamId}` : '/board'}
               className="btn btn-secondary"
             >
-              Cancel
+              {t('cancel')}
             </Link>
             <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Saving…' : isCreate ? 'Create ticket' : 'Save'}
+              {saving ? t('form.saving') : isCreate ? t('form.create') : t('form.save')}
             </button>
           </div>
         </form>
@@ -577,6 +590,7 @@ export function TicketPage() {
       {/* Comments + activity only exist for a persisted ticket. */}
       {!isCreate && id ? (
         <div className="ticket-side">
+          <AttachmentsPanel ticketId={id} />
           <CommentsPanel ticketId={id} />
           <ActivityTimeline ticketId={id} />
         </div>
@@ -586,9 +600,9 @@ export function TicketPage() {
 
       <ConfirmDialog
         open={confirmOpen}
-        title="Delete ticket?"
-        message="This permanently deletes the ticket and all of its comments. This cannot be undone."
-        confirmLabel="Delete"
+        title={t('deleteConfirm.title')}
+        message={t('deleteConfirm.message')}
+        confirmLabel={t('deleteConfirm.confirm')}
         danger
         busy={deleteMutation.isPending}
         onConfirm={() => deleteMutation.mutate()}

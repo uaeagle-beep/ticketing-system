@@ -20,8 +20,17 @@ public sealed class FakeCurrentUser : ICurrentUser
     public Guid? UserId { get; set; }
     public bool IsAdmin { get; set; }
     public IReadOnlySet<Guid> TeamIds { get; set; } = new HashSet<Guid>();
+    public bool IsApiKey { get; set; }
+    public IReadOnlySet<string> Scopes { get; set; } = new HashSet<string>();
 
     public Guid RequireUserId() => UserId ?? throw ServiceException.Unauthorized();
+
+    public void RequireScope(string requiredScope)
+    {
+        if (!IsApiKey || Scopes.Contains(requiredScope))
+            return;
+        throw ServiceException.InsufficientScope();
+    }
 
     public void RequireAdmin()
     {

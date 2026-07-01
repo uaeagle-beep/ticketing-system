@@ -1,4 +1,6 @@
+import { useTranslation } from 'react-i18next';
 import type { AssigneeRef, LabelRef, TicketPriority, TicketType } from '@/api/types';
+import i18n from '@/i18n/config';
 import { priorityLabel, typeLabel } from '@/lib/labels';
 import { readableTextColor } from '@/lib/color';
 import { formatDueDate } from '@/lib/time';
@@ -19,16 +21,17 @@ export function PriorityBadge({ priority }: { priority: TicketPriority }) {
 // Due-date pill (F-08). When overdue, a danger treatment plus an "Overdue" prefix conveys status
 // without relying on color alone (WCAG 1.4.1). `isOverdue` is backend-computed and authoritative.
 export function DueDatePill({ dueDate, isOverdue }: { dueDate: string; isOverdue: boolean }) {
+  const { t } = useTranslation('common');
   const label = formatDueDate(dueDate);
   return (
     <span
       className={`due-pill${isOverdue ? ' is-overdue' : ''}`}
-      title={isOverdue ? `Overdue — was due ${label}` : `Due ${label}`}
+      title={isOverdue ? t('badges.due.overdueTitle', { date: label }) : t('badges.due.due', { date: label })}
     >
       <span aria-hidden="true" className="due-pill-icon">
         {isOverdue ? '⚠' : '📅'}
       </span>
-      {isOverdue ? `Overdue: ${label}` : `Due ${label}`}
+      {isOverdue ? t('badges.due.overdue', { date: label }) : t('badges.due.due', { date: label })}
     </span>
   );
 }
@@ -42,11 +45,15 @@ export function AssigneeAvatars({
   assignees: AssigneeRef[];
   max?: number;
 }) {
+  const { t } = useTranslation('common');
   if (assignees.length === 0) return null;
   const shown = assignees.slice(0, max);
   const extra = assignees.length - shown.length;
   return (
-    <span className="assignee-avatars" aria-label={`Assignees: ${assignees.map((a) => a.displayName).join(', ')}`}>
+    <span
+      className="assignee-avatars"
+      aria-label={t('badges.assignees', { names: assignees.map((a) => a.displayName).join(', ') })}
+    >
       {shown.map((a) => (
         <span key={a.id} className="assignee-avatar" title={a.displayName} aria-hidden="true">
           {a.displayName.charAt(0).toUpperCase() || '?'}
@@ -77,9 +84,10 @@ export function LabelChip({ label }: { label: LabelRef }) {
 
 // A row of label chips (on cards and the ticket detail). Renders nothing when empty.
 export function LabelChips({ labels }: { labels: LabelRef[] }) {
+  const { t } = useTranslation('common');
   if (labels.length === 0) return null;
   return (
-    <span className="label-chips" aria-label={`Labels: ${labels.map((l) => l.name).join(', ')}`}>
+    <span className="label-chips" aria-label={t('badges.labels', { names: labels.map((l) => l.name).join(', ') })}>
       {labels.map((l) => (
         <LabelChip key={l.id} label={l} />
       ))}
@@ -126,7 +134,7 @@ export function WipBadge({ count, limit }: { count: number; limit: number | null
 // without relying on color (UX §3.2). Returns the base label unchanged when under/unlimited.
 export function wipAriaSuffix(count: number, limit: number | null): string {
   if (limit === null) return '';
-  if (count > limit) return `, over limit (${count} of ${limit})`;
-  if (count === limit) return `, full (${count} of ${limit})`;
+  if (count > limit) return i18n.t('common:badges.wip.overLimit', { current: count, limit });
+  if (count === limit) return i18n.t('common:badges.wip.full', { current: count, limit });
   return '';
 }

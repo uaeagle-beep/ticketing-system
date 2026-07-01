@@ -1,5 +1,6 @@
 using TicketTracker.Application.Abstractions;
 using TicketTracker.Application.Common;
+using TicketTracker.Domain.Enums;
 
 namespace TicketTracker.Api.Auth;
 
@@ -15,16 +16,56 @@ public sealed class CurrentUserAccessor : ICurrentUser
     public Guid? UserId { get; private set; }
     public bool IsAdmin { get; private set; }
     public IReadOnlySet<Guid> TeamIds { get; private set; } = new HashSet<Guid>();
+    public bool IsApiKey { get; private set; }
+    public IReadOnlySet<string> Scopes { get; private set; } = new HashSet<string>();
 
+    /// <summary>Populate a SESSION principal (the existing path). Not an API-key request; no scopes.</summary>
     public void Set(Guid userId, bool isAdmin, IReadOnlySet<Guid> teamIds)
     {
         UserId = userId;
         IsAdmin = isAdmin;
         TeamIds = teamIds;
+        IsApiKey = false;
+        Scopes = new HashSet<string>();
+    }
+
+    /// <summary>
+    /// Populate an API-KEY principal (Wave 3, ADR-0021): the owner's live admin flag + memberships plus the
+    /// key's granted scopes, marked as an API-key request so the v1 scope gate applies.
+    /// </summary>
+    public void SetApiKey(Guid userId, bool isAdmin, IReadOnlySet<Guid> teamIds, IReadOnlySet<string> scopes)
+    {
+        UserId = userId;
+        IsAdmin = isAdmin;
+        TeamIds = teamIds;
+        IsApiKey = true;
+        Scopes = scopes;
     }
 
     public Guid RequireUserId()
         => UserId ?? throw ServiceException.Unauthorized();
+
+    public void RequireScope(string requiredScope)
+    {
+        // Session requests never come through the v1 scope gate; only API-key requests are constrained.
+        if (!IsApiKey)
+            return;
+
+        if (HasScope(requiredScope))
+            return;
+
+        throw ServiceException.InsufficientScope(
+            $"This API key does not have the required '{requiredScope}' scope.");
+    }
+
+    /// <summary>Scope membership with write-implies-read: tickets:write also satisfies tickets:read.</summary>
+    private bool HasScope(string requiredScope)
+    {
+        if (Scopes.Contains(requiredScope))
+            return true;
+        return requiredScope == ApiKeyScopeCanonical.TicketsRead
+               && Scopes.Contains(ApiKeyScopeCanonical.TicketsWrite);
+    }
 
     public void RequireAdmin()
     {

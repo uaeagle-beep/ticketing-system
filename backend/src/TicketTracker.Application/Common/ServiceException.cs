@@ -36,4 +36,14 @@ public sealed class ServiceException : Exception
 
     public static ServiceException Forbidden(string message = "You are not allowed to perform this action.")
         => new(ServiceErrorCode.Forbidden, message);
+
+    public static ServiceException PayloadTooLarge(string message = "The uploaded file is too large.")
+        => new(ServiceErrorCode.PayloadTooLarge, message);
+
+    public static ServiceException UnsupportedMediaType(string message = "This file type is not allowed.")
+        => new(ServiceErrorCode.UnsupportedMediaType, message);
+
+    public static ServiceException InsufficientScope(
+        string message = "This API key does not have the required scope for this operation.")
+        => new(ServiceErrorCode.InsufficientScope, message);
 }

@@ -1,0 +1,54 @@
+{
+  "loadingTeams": "Loading teams…",
+  "loadingDashboard": "Loading dashboard…",
+  "selectTeam": "Select team",
+  "dateRange": "Date range",
+  "fromDate": "From date",
+  "toDate": "To date",
+  "presets": {
+    "4w": "Last 4 weeks",
+    "12w": "Last 12 weeks",
+    "26w": "Last 26 weeks",
+    "ytd": "Year to date",
+    "custom": "Custom range"
+  },
+  "noTeams": {
+    "title": "No teams yet",
+    "message": "Create a team and add some tickets to see reporting."
+  },
+  "noTickets": {
+    "title": "No tickets to report on",
+    "message": "This team has no tickets yet. Create a ticket to start seeing analytics."
+  },
+  "tiles": {
+    "open": "Open",
+    "done": "Done",
+    "overdue": "Overdue",
+    "avgCycleTime": "Avg cycle time"
+  },
+  "cycle": {
+    "hint": "median {{median}} · n={{n}}"
+  },
+  "charts": {
+    "byState": "Tickets by state",
+    "byPriority": "Tickets by priority",
+    "byType": "Tickets by type",
+    "openVsDone": "Open vs done",
+    "throughput": "Throughput (done per week)",
+    "byLabel": "Tickets by label",
+    "wip": "Work in progress vs limit"
+  },
+  "aria": {
+    "byState": "Bar chart of tickets by workflow state",
+    "byPriority": "Bar chart of tickets by priority",
+    "byType": "Doughnut chart of tickets by type",
+    "openVsDone": "Doughnut chart of open versus done tickets",
+    "throughput": "Line chart of tickets completed per ISO week",
+    "byLabel": "Bar chart of tickets by label"
+  },
+  "empty": {
+    "noThroughput": "No tickets reached done in this range.",
+    "noLabels": "No labelled tickets in this team."
+  },
+  "overLimit": "Over limit"
+}

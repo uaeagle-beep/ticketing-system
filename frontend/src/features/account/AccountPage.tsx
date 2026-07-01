@@ -4,6 +4,7 @@
 //    stays valid and all other devices are signed out; a wrong current password maps to a field error.
 
 import { useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { meApi } from '@/api/endpoints';
 import type { AuthUser } from '@/api/types';
@@ -11,11 +12,13 @@ import { useAuth } from '@/auth/AuthContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { errorMessage, isApiErrorCode } from '@/lib/errors';
 import { useToast } from '@/components/toast/ToastContext';
+import { ApiKeysManager } from './ApiKeysManager';
 
 const NAME_MAX = 100;
 const PASSWORD_MIN = 8;
 
 export function AccountPage() {
+  const { t } = useTranslation('account');
   const { user, updateUser } = useAuth();
   const toast = useToast();
 
@@ -28,7 +31,7 @@ export function AccountPage() {
     onSuccess: (updated: AuthUser) => {
       updateUser(updated);
       setName(updated.name ?? '');
-      toast.showSuccess('Profile updated.');
+      toast.showSuccess(t('profile.updated'));
     },
     onError: (err) => {
       if (isApiErrorCode(err, 'validation_error')) setNameError(errorMessage(err));
@@ -41,7 +44,7 @@ export function AccountPage() {
     setNameError(null);
     const trimmed = name.trim();
     if (trimmed.length > NAME_MAX) {
-      setNameError(`Name must be at most ${NAME_MAX} characters.`);
+      setNameError(t('profile.nameTooLong', { count: NAME_MAX }));
       return;
     }
     // Blank clears the name (server stores null).
@@ -62,12 +65,12 @@ export function AccountPage() {
       setCurrentPassword('');
       setNewPassword('');
       setConfirm('');
-      toast.showSuccess('Password changed. Other devices have been signed out.');
+      toast.showSuccess(t('password.changed'));
     },
     onError: (err) => {
       // Wrong current password re-auth => 401 invalid_credentials, shown as a field error.
       if (isApiErrorCode(err, 'invalid_credentials')) {
-        setCurrentPwError('The current password is incorrect.');
+        setCurrentPwError(t('password.currentIncorrect'));
       } else if (isApiErrorCode(err, 'validation_error')) {
         setPwError(errorMessage(err));
       } else {
@@ -90,8 +93,8 @@ export function AccountPage() {
       queryClient.setQueryData(queryKeys.notificationSettings, updated);
       toast.showSuccess(
         updated.emailNotificationsEnabled
-          ? 'Email notifications turned on.'
-          : 'Email notifications turned off.',
+          ? t('notifications.turnedOn')
+          : t('notifications.turnedOff'),
       );
     },
     onError: (err) => toast.showError(errorMessage(err)),
@@ -104,15 +107,15 @@ export function AccountPage() {
     setPwError(null);
     setCurrentPwError(null);
     if (!currentPassword) {
-      setCurrentPwError('Enter your current password.');
+      setCurrentPwError(t('password.enterCurrent'));
       return;
     }
     if (newPassword.length < PASSWORD_MIN) {
-      setPwError(`New password must be at least ${PASSWORD_MIN} characters.`);
+      setPwError(t('password.tooShort', { count: PASSWORD_MIN }));
       return;
     }
     if (newPassword !== confirm) {
-      setPwError('The new passwords do not match.');
+      setPwError(t('password.doNotMatch'));
       return;
     }
     passwordMutation.mutate({ currentPassword, newPassword });
@@ -120,23 +123,23 @@ export function AccountPage() {
 
   return (
     <div className="account-page">
-      <h1 style={{ fontSize: 20, marginBottom: 16 }}>Account</h1>
+      <h1 style={{ fontSize: 20, marginBottom: 16 }}>{t('title')}</h1>
 
       <section className="panel" style={{ marginBottom: 20 }}>
-        <h2 style={{ fontSize: 16, marginBottom: 12 }}>Profile</h2>
+        <h2 style={{ fontSize: 16, marginBottom: 12 }}>{t('profile.heading')}</h2>
         <form onSubmit={submitName} noValidate>
           <div className="field">
-            <label htmlFor="account-email">Email</label>
+            <label htmlFor="account-email">{t('profile.email')}</label>
             <input id="account-email" className="input" value={user?.email ?? ''} disabled readOnly />
           </div>
           <div className="field">
-            <label htmlFor="account-name">Display name</label>
+            <label htmlFor="account-name">{t('profile.displayName')}</label>
             <input
               id="account-name"
               className="input"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Shown instead of your email"
+              placeholder={t('profile.displayNamePlaceholder')}
               maxLength={NAME_MAX}
               disabled={profileMutation.isPending}
             />
@@ -144,17 +147,17 @@ export function AccountPage() {
           </div>
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button type="submit" className="btn btn-primary" disabled={profileMutation.isPending}>
-              {profileMutation.isPending ? 'Saving…' : 'Save profile'}
+              {profileMutation.isPending ? t('profile.saving') : t('profile.save')}
             </button>
           </div>
         </form>
       </section>
 
       <section className="panel">
-        <h2 style={{ fontSize: 16, marginBottom: 12 }}>Change password</h2>
+        <h2 style={{ fontSize: 16, marginBottom: 12 }}>{t('password.heading')}</h2>
         <form onSubmit={submitPassword} noValidate>
           <div className="field">
-            <label htmlFor="account-current-password">Current password</label>
+            <label htmlFor="account-current-password">{t('password.current')}</label>
             <input
               id="account-current-password"
               className="input"
@@ -167,7 +170,7 @@ export function AccountPage() {
             {currentPwError ? <span className="field-error">{currentPwError}</span> : null}
           </div>
           <div className="field">
-            <label htmlFor="account-new-password">New password</label>
+            <label htmlFor="account-new-password">{t('password.new')}</label>
             <input
               id="account-new-password"
               className="input"
@@ -179,7 +182,7 @@ export function AccountPage() {
             />
           </div>
           <div className="field">
-            <label htmlFor="account-confirm-password">Confirm new password</label>
+            <label htmlFor="account-confirm-password">{t('password.confirm')}</label>
             <input
               id="account-confirm-password"
               className="input"
@@ -193,17 +196,16 @@ export function AccountPage() {
           </div>
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button type="submit" className="btn btn-primary" disabled={passwordMutation.isPending}>
-              {passwordMutation.isPending ? 'Changing…' : 'Change password'}
+              {passwordMutation.isPending ? t('password.changing') : t('password.change')}
             </button>
           </div>
         </form>
       </section>
 
       <section className="panel" style={{ marginTop: 20 }}>
-        <h2 style={{ fontSize: 16, marginBottom: 12 }}>Notifications</h2>
+        <h2 style={{ fontSize: 16, marginBottom: 12 }}>{t('notifications.heading')}</h2>
         <p className="muted" style={{ marginBottom: 12 }}>
-          In-app notifications are always on. This controls whether we also email you a digest of
-          updates on tickets you watch.
+          {t('notifications.description')}
         </p>
         <label className="row" style={{ gap: 8, alignItems: 'center' }}>
           <input
@@ -212,9 +214,11 @@ export function AccountPage() {
             onChange={(e) => settingsMutation.mutate(e.target.checked)}
             disabled={settingsQuery.isLoading || settingsMutation.isPending}
           />
-          <span>Email me notification digests</span>
+          <span>{t('notifications.emailDigests')}</span>
         </label>
       </section>
+
+      <ApiKeysManager />
     </div>
   );
 }

@@ -9,6 +9,7 @@
 //  - Escape closes the dialog (unless busy), as before.
 
 import { useEffect, useRef, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -37,13 +38,14 @@ export function ConfirmDialog({
   open,
   title,
   message,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel,
+  cancelLabel,
   danger = false,
   busy = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const { t } = useTranslation('common');
   const dialogRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   // The element focused before the dialog opened, to restore on close.
@@ -141,7 +143,7 @@ export function ConfirmDialog({
         <div className="modal-body">{message}</div>
         <div className="modal-actions">
           <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={busy}>
-            {cancelLabel}
+            {cancelLabel ?? t('actions.cancel')}
           </button>
           <button
             ref={confirmRef}
@@ -150,7 +152,7 @@ export function ConfirmDialog({
             onClick={onConfirm}
             disabled={busy}
           >
-            {busy ? 'Working…' : confirmLabel}
+            {busy ? t('confirm.working') : confirmLabel ?? t('actions.confirm')}
           </button>
         </div>
       </div>

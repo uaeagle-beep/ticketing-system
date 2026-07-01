@@ -4,12 +4,14 @@
 
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { authApi } from '@/api/endpoints';
 import { errorMessage } from '@/lib/errors';
 
 const MIN_PASSWORD = 8;
 
 export function SignupPage() {
+  const { t } = useTranslation('auth');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -25,10 +27,10 @@ export function SignupPage() {
 
     const nextFieldErrors: typeof fieldErrors = {};
     if (password.length < MIN_PASSWORD) {
-      nextFieldErrors.password = `Password must be at least ${MIN_PASSWORD} characters.`;
+      nextFieldErrors.password = t('signup.passwordTooShort', { count: MIN_PASSWORD });
     }
     if (password !== confirm) {
-      nextFieldErrors.confirm = 'Passwords do not match.';
+      nextFieldErrors.confirm = t('signup.passwordsDoNotMatch');
     }
     setFieldErrors(nextFieldErrors);
     if (Object.keys(nextFieldErrors).length > 0) return;
@@ -37,10 +39,7 @@ export function SignupPage() {
     try {
       // Confirm-password is NOT sent to the API (client-only guard).
       const res = await authApi.signup({ email: email.trim(), password });
-      setSuccess(
-        res?.message ??
-          'Account created. Please check your email to verify your account before logging in.',
-      );
+      setSuccess(res?.message ?? t('signup.defaultSuccess'));
       setEmail('');
       setPassword('');
       setConfirm('');
@@ -54,15 +53,15 @@ export function SignupPage() {
   return (
     <div className="auth-shell">
       <div className="auth-card">
-        <div className="auth-brand">Ticket Tracker</div>
-        <h1 className="auth-title">Create an account</h1>
+        <div className="auth-brand">{t('brand')}</div>
+        <h1 className="auth-title">{t('signup.title')}</h1>
 
         {error ? <div className="banner banner-error">{error}</div> : null}
         {success ? (
           <div className="banner banner-success">
             {success}
             <div style={{ marginTop: 8 }}>
-              <Link to="/login">Continue to login →</Link>
+              <Link to="/login">{t('signup.continueToLogin')}</Link>
             </div>
           </div>
         ) : null}
@@ -70,7 +69,7 @@ export function SignupPage() {
         {!success ? (
           <form onSubmit={handleSubmit} noValidate>
             <div className="field">
-              <label htmlFor="signup-email">Email</label>
+              <label htmlFor="signup-email">{t('email')}</label>
               <input
                 id="signup-email"
                 className="input"
@@ -83,7 +82,7 @@ export function SignupPage() {
               />
             </div>
             <div className="field">
-              <label htmlFor="signup-password">Password</label>
+              <label htmlFor="signup-password">{t('password')}</label>
               <input
                 id="signup-password"
                 className="input"
@@ -95,14 +94,14 @@ export function SignupPage() {
                 aria-describedby="signup-password-hint"
               />
               <span id="signup-password-hint" className="field-hint">
-                Minimum {MIN_PASSWORD} characters.
+                {t('signup.passwordHint', { count: MIN_PASSWORD })}
               </span>
               {fieldErrors.password ? (
                 <span className="field-error">{fieldErrors.password}</span>
               ) : null}
             </div>
             <div className="field">
-              <label htmlFor="signup-confirm">Confirm password</label>
+              <label htmlFor="signup-confirm">{t('signup.confirmPassword')}</label>
               <input
                 id="signup-confirm"
                 className="input"
@@ -122,17 +121,17 @@ export function SignupPage() {
               style={{ width: '100%' }}
               disabled={submitting}
             >
-              {submitting ? 'Signing up…' : 'Sign up'}
+              {submitting ? t('signup.submitting') : t('signup.submit')}
             </button>
             <p className="field-hint" style={{ marginTop: 12, textAlign: 'center' }}>
-              Email verification is required.
+              {t('signup.verificationRequired')}
             </p>
           </form>
         ) : null}
 
         <div className="auth-footer">
           <div>
-            Already registered? <Link to="/login">Log in →</Link>
+            {t('signup.alreadyRegistered')} <Link to="/login">{t('signup.logInLink')}</Link>
           </div>
         </div>
       </div>

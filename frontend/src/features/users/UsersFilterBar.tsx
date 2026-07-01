@@ -4,6 +4,7 @@
 // plus role / team / email-verification / status dropdowns. Clear resets everything; the count shows
 // how many users match. Mirrors the board FilterBar pattern (labels + aria on every control).
 
+import { useTranslation } from 'react-i18next';
 import type { Team } from '@/api/types';
 
 export type RoleFilter = 'all' | 'admin' | 'member';
@@ -53,6 +54,7 @@ export function UsersFilterBar({
   onChange,
   onClear,
 }: UsersFilterBarProps) {
+  const { t } = useTranslation('users');
   const active = hasActiveUsersFilters(filters);
 
   return (
@@ -60,30 +62,30 @@ export function UsersFilterBar({
       <input
         className="input search"
         type="search"
-        placeholder="Search name or email…"
-        aria-label="Search by name or email"
+        placeholder={t('filters.searchPlaceholder')}
+        aria-label={t('filters.searchLabel')}
         value={filters.search}
         onChange={(e) => onChange({ ...filters, search: e.target.value })}
       />
 
       <select
         className="select"
-        aria-label="Filter by role"
+        aria-label={t('filters.byRole')}
         value={filters.role}
         onChange={(e) => onChange({ ...filters, role: e.target.value as RoleFilter })}
       >
-        <option value="all">All roles</option>
-        <option value="admin">Admin</option>
-        <option value="member">Member</option>
+        <option value="all">{t('filters.allRoles')}</option>
+        <option value="admin">{t('filters.roleAdmin')}</option>
+        <option value="member">{t('filters.roleMember')}</option>
       </select>
 
       <select
         className="select"
-        aria-label="Filter by team"
+        aria-label={t('filters.byTeam')}
         value={filters.teamId}
         onChange={(e) => onChange({ ...filters, teamId: e.target.value })}
       >
-        <option value="all">All teams</option>
+        <option value="all">{t('filters.allTeams')}</option>
         {teams.map((team) => (
           <option key={team.id} value={team.id}>
             {team.name}
@@ -93,33 +95,31 @@ export function UsersFilterBar({
 
       <select
         className="select"
-        aria-label="Filter by email verification"
+        aria-label={t('filters.byVerification')}
         value={filters.verified}
         onChange={(e) => onChange({ ...filters, verified: e.target.value as VerifiedFilter })}
       >
-        <option value="all">All emails</option>
-        <option value="verified">Verified</option>
-        <option value="unverified">Unverified</option>
+        <option value="all">{t('filters.allEmails')}</option>
+        <option value="verified">{t('filters.verified')}</option>
+        <option value="unverified">{t('filters.unverified')}</option>
       </select>
 
       <select
         className="select"
-        aria-label="Filter by status"
+        aria-label={t('filters.byStatus')}
         value={filters.status}
         onChange={(e) => onChange({ ...filters, status: e.target.value as StatusFilter })}
       >
-        <option value="all">All statuses</option>
-        <option value="active">Active</option>
-        <option value="blocked">Blocked</option>
+        <option value="all">{t('filters.allStatuses')}</option>
+        <option value="active">{t('filters.active')}</option>
+        <option value="blocked">{t('filters.blocked')}</option>
       </select>
 
       <button type="button" className="btn btn-secondary" onClick={onClear} disabled={!active}>
-        Clear
+        {t('filters.clear')}
       </button>
 
-      <span className="filter-count">
-        {matchCount} {matchCount === 1 ? 'user' : 'users'}
-      </span>
+      <span className="filter-count">{t('filters.count', { count: matchCount })}</span>
     </div>
   );
 }

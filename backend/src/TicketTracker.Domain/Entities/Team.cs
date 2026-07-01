@@ -29,4 +29,7 @@ public class Team
 
     /// <summary>Team-scoped labels/tags (Wave 2, ADR-0016). Cascade-deleted with the team (pure metadata).</summary>
     public ICollection<Label> Labels { get; set; } = new List<Label>();
+
+    /// <summary>Team-scoped outbound webhook subscriptions (Wave 3, ADR-0021). Cascade-deleted with the team.</summary>
+    public ICollection<WebhookSubscription> WebhookSubscriptions { get; set; } = new List<WebhookSubscription>();
 }

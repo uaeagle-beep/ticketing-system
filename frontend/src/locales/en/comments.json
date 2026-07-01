@@ -1,0 +1,28 @@
+{
+  "title": "Comments",
+  "loading": "Loading comments…",
+  "empty": "No comments yet. Be the first to add one.",
+  "edited": "(edited)",
+  "editedTitle": "Edited {{date}}",
+  "add": {
+    "label": "Add comment",
+    "placeholder": "Write a comment…",
+    "posting": "Posting…",
+    "post": "Post comment"
+  },
+  "edit": {
+    "label": "Edit comment",
+    "saving": "Saving…",
+    "save": "Save",
+    "cancel": "Cancel"
+  },
+  "actions": {
+    "edit": "Edit",
+    "delete": "Delete"
+  },
+  "deleteConfirm": {
+    "title": "Delete comment?",
+    "message": "This permanently deletes the comment. This cannot be undone.",
+    "confirm": "Delete"
+  }
+}

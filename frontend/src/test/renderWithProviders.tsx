@@ -16,9 +16,15 @@ import { render, type RenderOptions, type RenderResult } from '@testing-library/
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { I18nextProvider } from 'react-i18next';
 import { AuthProvider } from '@/auth/AuthContext';
 import { ToastProvider } from '@/components/toast/ToastContext';
 import { setToken } from '@/api/tokenStore';
+import i18n, { initI18nForTest } from '@/i18n/config';
+
+// Ensure the i18n singleton is initialized (pinned to en) even if a test imports this helper
+// before the global setup ran. Idempotent.
+initI18nForTest();
 
 export function makeTestQueryClient(): QueryClient {
   // Retries off so deliberately-failing requests reject immediately (no waiting
@@ -59,13 +65,15 @@ function Providers({
   queryClient: QueryClient;
 }) {
   return (
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={initialEntries}>
-        <ToastProvider>
-          <AuthProvider>{children}</AuthProvider>
-        </ToastProvider>
-      </MemoryRouter>
-    </QueryClientProvider>
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={initialEntries}>
+          <ToastProvider>
+            <AuthProvider>{children}</AuthProvider>
+          </ToastProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+    </I18nextProvider>
   );
 }
 

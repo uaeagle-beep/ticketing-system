@@ -1,0 +1,69 @@
+{
+  "brand": "Ticket Tracker",
+  "nav": {
+    "board": "Board",
+    "teams": "Teams",
+    "epics": "Epics",
+    "analytics": "Analytics",
+    "users": "Users",
+    "notifications": "Notifications"
+  },
+  "userMenu": {
+    "account": "Account",
+    "logOut": "Log out"
+  },
+  "bell": {
+    "label": "Notifications",
+    "labelWithCount": "Notifications ({{count}} unread)"
+  },
+  "language": {
+    "label": "Language",
+    "name": {
+      "uk": "Українська",
+      "en": "English"
+    }
+  },
+  "actions": {
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "create": "Create",
+    "creating": "Creating…",
+    "delete": "Delete",
+    "deleting": "Deleting…",
+    "edit": "Edit",
+    "close": "Close",
+    "confirm": "Confirm",
+    "copy": "Copy",
+    "copied": "Copied",
+    "retry": "Retry"
+  },
+  "states": {
+    "loading": "Loading…",
+    "empty": "Nothing here yet.",
+    "error": "Something went wrong.",
+    "errorTitle": "Something went wrong",
+    "tryAgain": "Try again"
+  },
+  "confirm": {
+    "working": "Working…"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "body": "The page you’re looking for doesn’t exist.",
+    "goToBoard": "Go to board"
+  },
+  "badges": {
+    "due": {
+      "due": "Due {{date}}",
+      "overdue": "Overdue: {{date}}",
+      "overdueTitle": "Overdue — was due {{date}}"
+    },
+    "assignees": "Assignees: {{names}}",
+    "labels": "Labels: {{names}}",
+    "wip": {
+      "overLimit": ", over limit ({{current}} of {{limit}})",
+      "full": ", full ({{current}} of {{limit}})"
+    }
+  }
+}

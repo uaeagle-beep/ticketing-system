@@ -29,8 +29,22 @@ export const queryKeys = {
 
   comments: (ticketId: string) => ['comments', ticketId] as const,
 
+  // Wave 3 attachments (ADR-0018): a ticket's attachment metadata list.
+  attachments: (ticketId: string) => ['attachments', ticketId] as const,
+
   // Wave 2 labels (ADR-0016): a team's label set (for pickers + management).
   labels: (teamId: string) => ['labels', teamId] as const,
+
+  // Wave 3 webhooks (ADR-0021): a team's subscriptions + a subscription's delivery audit.
+  webhooks: (teamId: string) => ['webhooks', teamId] as const,
+  webhookDeliveries: (subscriptionId: string) => ['webhook-deliveries', subscriptionId] as const,
+
+  // Wave 3 API keys (ADR-0021): the caller's personal access tokens (Self).
+  apiKeys: ['api-keys'] as const,
+
+  // Wave 3 analytics (ADR-0020): a team's dashboard for a given date range.
+  dashboard: (teamId: string, from: string | undefined, to: string | undefined) =>
+    ['dashboard', teamId, from ?? null, to ?? null] as const,
 
   // Wave 2 notifications subsystem.
   notifications: ['notifications'] as const,

@@ -1,0 +1,48 @@
+{
+  "title": "Epics",
+  "selectTeam": "Select team",
+  "noTeams": "No teams",
+  "createEpic": "+ Create epic",
+  "loadingTeams": "Loading teams…",
+  "loadingEpics": "Loading epics…",
+  "emptyTeams": {
+    "title": "No teams yet",
+    "message": "Create a team first; epics belong to a team."
+  },
+  "emptyEpics": {
+    "title": "No epics for this team",
+    "message": "Create the first epic to group related tickets."
+  },
+  "panel": {
+    "newEpicIn": "New epic in {{team}}",
+    "editEpic": "Edit epic",
+    "title": "Title",
+    "description": "Description (optional)"
+  },
+  "table": {
+    "title": "Title",
+    "tickets": "Tickets",
+    "modified": "Modified",
+    "actions": "Actions"
+  },
+  "deleteHint": "Cannot delete an epic that is referenced by tickets. Reassign or remove those tickets first.",
+  "deleteAriaLabel": "Delete {{title}}",
+  "confirmDelete": {
+    "title": "Delete epic?",
+    "messagePrefix": "Delete epic ",
+    "messageSuffix": "? This cannot be undone."
+  },
+  "toast": {
+    "created": "Epic created.",
+    "saved": "Epic saved.",
+    "deleted": "Epic deleted."
+  },
+  "actions": {
+    "edit": "Edit",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "create": "Create",
+    "save": "Save",
+    "saving": "Saving…"
+  }
+}

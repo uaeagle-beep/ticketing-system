@@ -8,6 +8,7 @@
 //   stays authoritative and returns 409 — surfaced as a toast).
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { epicsApi } from '@/api/endpoints';
@@ -29,6 +30,7 @@ interface EpicFormState {
 const EMPTY_EPIC_FORM: EpicFormState = { title: '', description: '' };
 
 export function EpicsPage() {
+  const { t } = useTranslation('epics');
   const queryClient = useQueryClient();
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -70,7 +72,7 @@ export function EpicsPage() {
         description: form.description.trim() || null,
       }),
     onSuccess: () => {
-      toast.showSuccess('Epic created.');
+      toast.showSuccess(t('toast.created'));
       setPanelMode(null);
       setForm(EMPTY_EPIC_FORM);
       invalidate();
@@ -85,7 +87,7 @@ export function EpicsPage() {
         description: form.description.trim() || null,
       }),
     onSuccess: () => {
-      toast.showSuccess('Epic saved.');
+      toast.showSuccess(t('toast.saved'));
       setPanelMode(null);
       setForm(EMPTY_EPIC_FORM);
       invalidate();
@@ -96,7 +98,7 @@ export function EpicsPage() {
   const deleteMutation = useMutation({
     mutationFn: (epicId: string) => epicsApi.remove(epicId),
     onSuccess: () => {
-      toast.showSuccess('Epic deleted.');
+      toast.showSuccess(t('toast.deleted'));
       setDeleteTarget(null);
       invalidate();
     },
@@ -140,17 +142,17 @@ export function EpicsPage() {
   return (
     <div className="page-container">
       <div className="page-header">
-        <h1>Epics</h1>
+        <h1>{t('title')}</h1>
         <div className="spacer" />
         <select
           className="select"
           style={{ width: 'auto', minWidth: 160 }}
-          aria-label="Select team"
+          aria-label={t('selectTeam')}
           value={selectedTeamId ?? ''}
           onChange={(e) => handleTeamChange(e.target.value)}
           disabled={teamsQuery.isLoading || teams.length === 0}
         >
-          {teams.length === 0 ? <option value="">No teams</option> : null}
+          {teams.length === 0 ? <option value="">{t('noTeams')}</option> : null}
           {teams.map((team) => (
             <option key={team.id} value={team.id}>
               {team.name}
@@ -163,18 +165,18 @@ export function EpicsPage() {
           onClick={openCreate}
           disabled={!selectedTeamId}
         >
-          + Create epic
+          {t('createEpic')}
         </button>
       </div>
 
       {teamsQuery.isLoading ? (
-        <LoadingState label="Loading teams…" />
+        <LoadingState label={t('loadingTeams')} />
       ) : teamsQuery.isError ? (
         <ErrorState message={errorMessage(teamsQuery.error)} onRetry={() => teamsQuery.refetch()} />
       ) : teams.length === 0 ? (
         <EmptyState
-          title="No teams yet"
-          message="Create a team first; epics belong to a team."
+          title={t('emptyTeams.title')}
+          message={t('emptyTeams.message')}
         />
       ) : (
         <>
@@ -182,11 +184,11 @@ export function EpicsPage() {
             <form className="inline-form" onSubmit={submitPanel} style={{ flexDirection: 'column' }}>
               <h3 style={{ fontSize: 15 }}>
                 {panelMode === 'create'
-                  ? `New epic in ${editingTeam?.name ?? ''}`
-                  : 'Edit epic'}
+                  ? t('panel.newEpicIn', { team: editingTeam?.name ?? '' })
+                  : t('panel.editEpic')}
               </h3>
               <div className="field" style={{ width: '100%', marginBottom: 8 }}>
-                <label htmlFor="epic-title">Title</label>
+                <label htmlFor="epic-title">{t('panel.title')}</label>
                 <input
                   id="epic-title"
                   className="input"
@@ -198,7 +200,7 @@ export function EpicsPage() {
                 />
               </div>
               <div className="field" style={{ width: '100%', marginBottom: 8 }}>
-                <label htmlFor="epic-description">Description (optional)</label>
+                <label htmlFor="epic-description">{t('panel.description')}</label>
                 <textarea
                   id="epic-description"
                   className="textarea"
@@ -214,30 +216,30 @@ export function EpicsPage() {
                   onClick={() => setPanelMode(null)}
                   disabled={panelBusy}
                 >
-                  Cancel
+                  {t('actions.cancel')}
                 </button>
                 <button
                   type="submit"
                   className="btn btn-primary"
                   disabled={panelBusy || !form.title.trim()}
                 >
-                  {panelBusy ? 'Saving…' : panelMode === 'create' ? 'Create' : 'Save'}
+                  {panelBusy ? t('actions.saving') : panelMode === 'create' ? t('actions.create') : t('actions.save')}
                 </button>
               </div>
             </form>
           ) : null}
 
           {epicsQuery.isLoading ? (
-            <LoadingState label="Loading epics…" />
+            <LoadingState label={t('loadingEpics')} />
           ) : epicsQuery.isError ? (
             <ErrorState message={errorMessage(epicsQuery.error)} onRetry={() => epicsQuery.refetch()} />
           ) : epics.length === 0 ? (
             <EmptyState
-              title="No epics for this team"
-              message="Create the first epic to group related tickets."
+              title={t('emptyEpics.title')}
+              message={t('emptyEpics.message')}
               action={
                 <button type="button" className="btn btn-primary" onClick={openCreate}>
-                  + Create epic
+                  {t('createEpic')}
                 </button>
               }
             />
@@ -245,10 +247,10 @@ export function EpicsPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Title</th>
-                  <th>Tickets</th>
-                  <th>Modified</th>
-                  <th className="text-right">Actions</th>
+                  <th>{t('table.title')}</th>
+                  <th>{t('table.tickets')}</th>
+                  <th>{t('table.modified')}</th>
+                  <th className="text-right">{t('table.actions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -273,19 +275,15 @@ export function EpicsPage() {
                             className="btn btn-secondary btn-sm"
                             onClick={() => openEdit(epic)}
                           >
-                            Edit
+                            {t('actions.edit')}
                           </button>
                           <button
                             type="button"
                             className="btn btn-danger btn-sm"
                             disabled={referenced}
-                            title={
-                              referenced
-                                ? 'Cannot delete an epic that is referenced by tickets. Reassign or remove those tickets first.'
-                                : undefined
-                            }
+                            title={referenced ? t('deleteHint') : undefined}
                             onClick={() => setDeleteTarget(epic)}
-                            aria-label={`Delete ${epic.title}`}
+                            aria-label={t('deleteAriaLabel', { title: epic.title })}
                           >
                             ×
                           </button>
@@ -302,13 +300,15 @@ export function EpicsPage() {
 
       <ConfirmDialog
         open={deleteTarget !== null}
-        title="Delete epic?"
+        title={t('confirmDelete.title')}
         message={
           <>
-            Delete epic <strong>{deleteTarget?.title}</strong>? This cannot be undone.
+            {t('confirmDelete.messagePrefix')}
+            <strong>{deleteTarget?.title}</strong>
+            {t('confirmDelete.messageSuffix')}
           </>
         }
-        confirmLabel="Delete"
+        confirmLabel={t('actions.delete')}
         danger
         busy={deleteMutation.isPending}
         onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}

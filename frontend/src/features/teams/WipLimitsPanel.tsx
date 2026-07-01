@@ -9,15 +9,17 @@
 // Save is disabled while any field is invalid or a save is in flight.
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Team, TicketState } from '@/api/types';
 import { orderedStates, stateLabel } from '@/lib/labels';
 
-const RANGE_MESSAGE = 'Enter a whole number of 1 or more, or leave blank for no limit.';
-const MAX_MESSAGE = 'Enter a number no greater than 999.';
 const WIP_MAX = 999;
 
+// Validation error codes (translated at render); keeps the pure validator language-agnostic.
+type FieldErrorCode = 'range' | 'max';
+
 type FieldValues = Record<TicketState, string>;
-type FieldErrors = Partial<Record<TicketState, string>>;
+type FieldErrors = Partial<Record<TicketState, FieldErrorCode>>;
 
 interface WipLimitsPanelProps {
   team: Team;
@@ -37,19 +39,20 @@ function initialValues(team: Team): FieldValues {
 }
 
 // Validate a single raw field value. Empty is valid (unlimited). Returns an error
-// message or undefined. Rejects non-integers, < 1, and > 999.
-function validateField(raw: string): string | undefined {
+// code or undefined. Rejects non-integers, < 1, and > 999.
+function validateField(raw: string): FieldErrorCode | undefined {
   const trimmed = raw.trim();
   if (trimmed === '') return undefined; // blank = no limit
   // Whole numbers only: digits, no decimals/sign/exponent.
-  if (!/^\d+$/.test(trimmed)) return RANGE_MESSAGE;
+  if (!/^\d+$/.test(trimmed)) return 'range';
   const value = Number(trimmed);
-  if (value < 1) return RANGE_MESSAGE;
-  if (value > WIP_MAX) return MAX_MESSAGE;
+  if (value < 1) return 'range';
+  if (value > WIP_MAX) return 'max';
   return undefined;
 }
 
 export function WipLimitsPanel({ team, busy, onSave, onCancel }: WipLimitsPanelProps) {
+  const { t } = useTranslation('teams');
   const [values, setValues] = useState<FieldValues>(() => initialValues(team));
   const [errors, setErrors] = useState<FieldErrors>({});
   const firstFieldRef = useRef<HTMLInputElement | null>(null);
@@ -105,12 +108,10 @@ export function WipLimitsPanel({ team, busy, onSave, onCancel }: WipLimitsPanelP
         }
       }}
       role="group"
-      aria-label={`WIP limits for ${team.name}`}
+      aria-label={t('wip.ariaLabel', { name: team.name })}
       noValidate
     >
-      <p className="wip-panel-intro">
-        Cap how many tickets each column can hold. Leave a field blank for no limit.
-      </p>
+      <p className="wip-panel-intro">{t('wip.intro')}</p>
 
       <div className="wip-field-list">
         {orderedStates.map((state, index) => {
@@ -131,7 +132,7 @@ export function WipLimitsPanel({ team, busy, onSave, onCancel }: WipLimitsPanelP
                   max={WIP_MAX}
                   step={1}
                   inputMode="numeric"
-                  placeholder="No limit"
+                  placeholder={t('wip.placeholder')}
                   value={values[state] ?? ''}
                   disabled={busy}
                   aria-invalid={error ? true : undefined}
@@ -139,14 +140,14 @@ export function WipLimitsPanel({ team, busy, onSave, onCancel }: WipLimitsPanelP
                   onChange={(e) => setField(state, e.target.value)}
                   onBlur={() => validateOnBlur(state)}
                 />
-                <span className="wip-field-unit">tickets</span>
+                <span className="wip-field-unit">{t('wip.unit')}</span>
               </div>
               {error ? (
                 <span id={errorId} className="field-error">
-                  {error}
+                  {error === 'max' ? t('wip.maxError') : t('wip.rangeError')}
                 </span>
               ) : (
-                <span className="field-hint">Blank = no limit</span>
+                <span className="field-hint">{t('wip.blankHint')}</span>
               )}
             </div>
           );
@@ -155,10 +156,10 @@ export function WipLimitsPanel({ team, busy, onSave, onCancel }: WipLimitsPanelP
 
       <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
         <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel} disabled={busy}>
-          Cancel
+          {t('actions.cancel')}
         </button>
         <button type="submit" className="btn btn-primary btn-sm" disabled={busy || hasErrors}>
-          {busy ? 'Saving…' : 'Save limits'}
+          {busy ? t('actions.saving') : t('wip.save')}
         </button>
       </div>
     </form>

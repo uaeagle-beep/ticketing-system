@@ -3,6 +3,7 @@
 // the API). Shows a per-column empty state when the team has no tickets in that
 // state (EC9 case b).
 
+import { useTranslation } from 'react-i18next';
 import { useDroppable } from '@dnd-kit/core';
 import type { BoardColumn as BoardColumnModel } from '@/api/types';
 import { stateLabel } from '@/lib/labels';
@@ -10,6 +11,7 @@ import { WipBadge, wipAriaSuffix } from '@/components/Badges';
 import { TicketCard } from './TicketCard';
 
 export function BoardColumn({ column }: { column: BoardColumnModel }) {
+  const { t } = useTranslation('board');
   const { setNodeRef, isOver } = useDroppable({
     id: column.state,
     data: { state: column.state },
@@ -33,7 +35,7 @@ export function BoardColumn({ column }: { column: BoardColumnModel }) {
       </header>
       <div className="board-column-body">
         {column.tickets.length === 0 ? (
-          <div className="board-column-empty">No tickets</div>
+          <div className="board-column-empty">{t('column.empty')}</div>
         ) : (
           column.tickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} />)
         )}

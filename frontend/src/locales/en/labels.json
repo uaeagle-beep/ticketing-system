@@ -1,0 +1,35 @@
+{
+  "createFormLabel": "Create label",
+  "namePlaceholder": "Label name",
+  "newNameLabel": "New label name",
+  "nameLabel": "Label name",
+  "newColorLabel": "New label color",
+  "colorLabel": "Label color",
+  "paletteLabel": "{{label}} palette",
+  "custom": "Custom",
+  "adding": "Adding…",
+  "addLabel": "Add label",
+  "loading": "Loading labels…",
+  "emptyHint": "No labels yet. Add one above.",
+  "editFormLabel": "Edit label {{name}}",
+  "confirmDelete": {
+    "title": "Delete label?",
+    "messagePrefix": "Delete label ",
+    "messageSuffix": "? It will be removed from all tickets. This cannot be undone."
+  },
+  "toast": {
+    "created": "Label created.",
+    "saved": "Label saved.",
+    "deleted": "Label deleted."
+  },
+  "actions": {
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "cancel": "Cancel"
+  },
+  "picker": {
+    "groupLabel": "Labels",
+    "empty": "No labels for this team yet — create them on the Teams page."
+  }
+}

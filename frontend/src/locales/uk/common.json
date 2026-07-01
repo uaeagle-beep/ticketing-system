@@ -1,0 +1,69 @@
+{
+  "brand": "Ticket Tracker",
+  "nav": {
+    "board": "Дошка",
+    "teams": "Команди",
+    "epics": "Епіки",
+    "analytics": "Аналітика",
+    "users": "Користувачі",
+    "notifications": "Сповіщення"
+  },
+  "userMenu": {
+    "account": "Обліковий запис",
+    "logOut": "Вийти"
+  },
+  "bell": {
+    "label": "Сповіщення",
+    "labelWithCount": "Сповіщення ({{count}} непрочитаних)"
+  },
+  "language": {
+    "label": "Мова",
+    "name": {
+      "uk": "Українська",
+      "en": "English"
+    }
+  },
+  "actions": {
+    "save": "Зберегти",
+    "saving": "Збереження…",
+    "cancel": "Скасувати",
+    "create": "Створити",
+    "creating": "Створення…",
+    "delete": "Видалити",
+    "deleting": "Видалення…",
+    "edit": "Редагувати",
+    "close": "Закрити",
+    "confirm": "Підтвердити",
+    "copy": "Копіювати",
+    "copied": "Скопійовано",
+    "retry": "Повторити"
+  },
+  "states": {
+    "loading": "Завантаження…",
+    "empty": "Тут поки що порожньо.",
+    "error": "Щось пішло не так.",
+    "errorTitle": "Щось пішло не так",
+    "tryAgain": "Спробувати ще раз"
+  },
+  "confirm": {
+    "working": "Виконується…"
+  },
+  "notFound": {
+    "title": "Сторінку не знайдено",
+    "body": "Сторінка, яку ви шукаєте, не існує.",
+    "goToBoard": "Перейти до дошки"
+  },
+  "badges": {
+    "due": {
+      "due": "Термін {{date}}",
+      "overdue": "Прострочено: {{date}}",
+      "overdueTitle": "Прострочено — термін був {{date}}"
+    },
+    "assignees": "Виконавці: {{names}}",
+    "labels": "Мітки: {{names}}",
+    "wip": {
+      "overLimit": ", перевищено ліміт ({{current}} з {{limit}})",
+      "full": ", заповнено ({{current}} з {{limit}})"
+    }
+  }
+}

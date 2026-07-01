@@ -42,6 +42,11 @@ export type ApiErrorCode =
   | 'email_in_use'
   // Labels (Wave 2, ADR-0016).
   | 'duplicate_label_name'
+  // Attachments (Wave 3, ADR-0018).
+  | 'payload_too_large'
+  | 'unsupported_media_type'
+  // Webhooks + API keys (Wave 3, ADR-0021).
+  | 'insufficient_scope'
   // Defensive fallback for any code not enumerated above.
   | (string & {});
 
@@ -71,6 +76,9 @@ export interface AuthUser {
   isAdmin: boolean;
   isBlocked: boolean;
   teams: TeamRef[];
+  // Wave 3 i18n (§5.7, ADR-0022): persisted preferred UI language ('uk'|'en'), or null when unset.
+  // The SPA reads this on bootstrap to set the active language across devices (localStorage wins).
+  locale?: string | null;
 }
 
 export interface LoginResponse {
@@ -344,8 +352,12 @@ export interface ResetPasswordRequest {
 }
 
 export interface UpdateProfileRequest {
-  // null/blank => clears the display name (UI shows the email).
+  // null/blank => clears the display name (UI shows the email). NOTE: the backend re-derives the
+  // name from this field on every call, so a caller that only wants to change the locale MUST still
+  // pass the current `name` (else it would be cleared). The language switcher does exactly that.
   name: string | null;
+  // Wave 3 i18n (§5.7, ADR-0022): optional preferred language ('uk'|'en'), or null to clear.
+  locale?: string | null;
 }
 
 export interface ChangePasswordRequest {
@@ -439,6 +451,178 @@ export interface CreateCommentRequest {
 // PUT /api/comments/{id} — edit own comment (F-12, §5.2).
 export interface EditCommentRequest {
   body: string;
+}
+
+// ---- Attachments (Wave 3, §5.2, ADR-0018) ----
+// Metadata only; the on-disk storage key is server-internal and never returned.
+export interface Attachment {
+  id: string;
+  ticketId: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedBy: string;
+  uploadedByDisplayName: string;
+  createdAt: string;
+}
+
+// ---- Webhooks (Wave 3, §5.5, ADR-0021; M(team)) ----
+
+// A webhook subscription. eventTypes is the list of subscribed canonical codes, or ['*'] for all.
+// The signing secret is NEVER returned on read — only once on create/rotate (see CreateWebhookResponse).
+export interface WebhookSubscription {
+  id: string;
+  teamId: string;
+  url: string;
+  eventTypes: string[];
+  active: boolean;
+  createdAt: string;
+  modifiedAt: string;
+}
+
+export interface CreateWebhookRequest {
+  url: string;
+  eventTypes: string[];
+  active?: boolean;
+}
+
+export interface UpdateWebhookRequest {
+  url?: string;
+  eventTypes?: string[];
+  active?: boolean;
+  rotateSecret?: boolean;
+}
+
+// Create/rotate reveal the signing secret ONCE.
+export interface CreateWebhookResponse {
+  subscription: WebhookSubscription;
+  secret: string;
+}
+
+export interface UpdateWebhookResponse {
+  subscription: WebhookSubscription;
+  secret: string | null;
+}
+
+// A delivery audit row (excludes the payload body by default).
+export interface WebhookDelivery {
+  id: string;
+  eventType: string;
+  status: 'pending' | 'delivered' | 'failed' | (string & {});
+  attempts: number;
+  lastStatusCode: number | null;
+  lastError: string | null;
+  createdAt: string;
+  deliveredAt: string | null;
+}
+
+export interface WebhookDeliveryList {
+  items: WebhookDelivery[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+export interface WebhookPingResponse {
+  deliveryId: string;
+}
+
+// The subscribable event types offered in the create UI (the canonical set + wildcard). Kept here so the
+// UI checkbox list and the API stay in sync (the backend validates each against EventType or '*').
+export const WEBHOOK_EVENT_TYPES = [
+  'ticket_created',
+  'ticket_field_changed',
+  'ticket_moved',
+  'ticket_assignees_changed',
+  'comment_added',
+  'comment_edited',
+  'comment_deleted',
+  'ticket_deleted',
+  'attachment_added',
+  'attachment_deleted',
+] as const;
+
+// ---- API keys (Wave 3, §5.6, ADR-0021; Self) ----
+
+// Coarse scopes an API key can carry (write implies read). Canonical wire codes.
+export const API_KEY_SCOPES = ['tickets:read', 'tickets:write'] as const;
+export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
+
+// An API key as returned by list/create — never the raw key or hash.
+export interface ApiKey {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+}
+
+export interface CreateApiKeyRequest {
+  name: string;
+  scopes: string[];
+}
+
+// Create reveals the raw ptk_ key ONCE.
+export interface CreateApiKeyResponse {
+  key: ApiKey;
+  secret: string;
+}
+
+// ---- Analytics dashboard (Wave 3, §5.4, ADR-0020) ----
+// One composite, read-only, team-scoped payload of the ~nine Kanban-health metrics, aggregated
+// server-side (pre-aggregated counts/buckets — the SPA plots a small fixed number of points). Enum
+// keys (state/priority/type) are the canonical lowercase codes used everywhere else.
+
+export interface LabelCount {
+  labelId: string;
+  name: string;
+  color: string;
+  count: number;
+}
+
+export interface OpenVsDone {
+  open: number;
+  done: number;
+}
+
+export interface ThroughputBucket {
+  weekStart: string; // ISO date (YYYY-MM-DD), Monday of the ISO week
+  doneCount: number;
+}
+
+export interface CycleTime {
+  avgDays: number | null;
+  medianDays: number | null;
+  sampleSize: number;
+}
+
+export interface WipState {
+  state: TicketState;
+  count: number;
+  limit: number | null;
+  overLimit: boolean;
+}
+
+export interface Dashboard {
+  teamId: string;
+  from: string; // ISO date (YYYY-MM-DD)
+  to: string; // ISO date (YYYY-MM-DD)
+  byState: Record<TicketState, number>;
+  byPriority: Record<TicketPriority, number>;
+  byType: Record<TicketType, number>;
+  byLabel: LabelCount[];
+  openVsDone: OpenVsDone;
+  throughput: ThroughputBucket[];
+  cycleTime: CycleTime;
+  overdueCount: number;
+  wip: WipState[];
+}
+
+// Optional UTC calendar-day range for the dashboard query (both YYYY-MM-DD; omit for the default 12 weeks).
+export interface DashboardRange {
+  from?: string;
+  to?: string;
 }
 
 // ---- Board filters (client-facing) ----

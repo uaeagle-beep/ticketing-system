@@ -1,0 +1,25 @@
+{
+  "state": {
+    "new": "New",
+    "ready_for_implementation": "Ready for implementation",
+    "in_progress": "In progress",
+    "ready_for_acceptance": "Ready for acceptance",
+    "done": "Done"
+  },
+  "type": {
+    "bug": "Bug",
+    "feature": "Feature",
+    "fix": "Fix"
+  },
+  "priority": {
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "urgent": "Urgent"
+  },
+  "dueFilter": {
+    "overdue": "Overdue",
+    "has_due_date": "Has due date",
+    "no_due_date": "No due date"
+  }
+}

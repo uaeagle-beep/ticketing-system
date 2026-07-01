@@ -19,12 +19,14 @@ public sealed class NotificationFanout : ITicketEventHandler
 {
     private readonly IAppDbContext _db;
     private readonly IClock _clock;
+    private readonly IRealtimeNotifier _rt;
     private readonly ILogger<NotificationFanout> _logger;
 
-    public NotificationFanout(IAppDbContext db, IClock clock, ILogger<NotificationFanout> logger)
+    public NotificationFanout(IAppDbContext db, IClock clock, IRealtimeNotifier rt, ILogger<NotificationFanout> logger)
     {
         _db = db;
         _clock = clock;
+        _rt = rt;
         _logger = logger;
     }
 
@@ -33,6 +35,10 @@ public sealed class NotificationFanout : ITicketEventHandler
         var notifiable = events.Where(e => EventTypeCanonical.IsNotifiable(e.Type)).ToList();
         if (notifiable.Count == 0)
             return;
+
+        // Recipients we wrote a row for this batch — pinged over SignalR AFTER commit so the bell updates
+        // live without waiting for the ~120s throttled poll (Wave 3, ADR-0019, §6.4). Deduped across events.
+        var pingRecipients = new HashSet<Guid>();
 
         try
         {
@@ -76,6 +82,7 @@ public sealed class NotificationFanout : ITicketEventHandler
                         ReadAt = null,
                         EmailedAt = null
                     });
+                    pingRecipients.Add(recipientId);
                     any = true;
                 }
             }
@@ -86,6 +93,13 @@ public sealed class NotificationFanout : ITicketEventHandler
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to fan out notifications for {Count} event(s).", notifiable.Count);
+            return; // rows were not committed — do not ping the bell for notifications that do not exist
         }
+
+        // Real-time bell ping (Wave 3, ADR-0019, §6.4): a thin per-user signal so the notification bell
+        // refetches immediately. Emitted only for recipients whose rows committed above; the notifier is a
+        // best-effort side effect (it does not throw), and a dropped ping is backstopped by polling.
+        foreach (var recipientId in pingRecipients)
+            await _rt.NotifyUserAsync(recipientId, ct);
     }
 }

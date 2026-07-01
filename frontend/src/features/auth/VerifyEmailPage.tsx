@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { authApi } from '@/api/endpoints';
 import { errorMessage } from '@/lib/errors';
 import { ResendVerificationForm } from './ResendVerificationForm';
@@ -17,6 +18,7 @@ import { ResendVerificationForm } from './ResendVerificationForm';
 type VerifyStatus = 'verifying' | 'success' | 'error' | 'missing';
 
 export function VerifyEmailPage() {
+  const { t } = useTranslation('auth');
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
 
@@ -38,34 +40,34 @@ export function VerifyEmailPage() {
       .verifyEmail({ token })
       .then((res) => {
         setStatus('success');
-        setMessage(res?.message ?? 'Email verified — your account is ready to use.');
+        setMessage(res?.message ?? t('verify.defaultSuccess'));
       })
       .catch((err) => {
         setStatus('error');
         setMessage(errorMessage(err));
       });
-  }, [token]);
+  }, [token, t]);
 
   return (
     <div className="auth-shell">
       <div className="auth-card">
-        <div className="auth-brand">Ticket Tracker</div>
-        <h1 className="auth-title">Email verification</h1>
+        <div className="auth-brand">{t('brand')}</div>
+        <h1 className="auth-title">{t('verify.title')}</h1>
 
         {status === 'verifying' ? (
           <div className="center-state" style={{ padding: '24px 0' }}>
             <div className="spinner" aria-hidden />
-            <span className="muted">Verifying your email…</span>
+            <span className="muted">{t('verify.verifying')}</span>
           </div>
         ) : null}
 
         {status === 'success' ? (
           <>
             <div className="banner banner-success">
-              {message || 'Email verified — your account is ready to use.'}
+              {message || t('verify.defaultSuccess')}
             </div>
             <Link to="/login" className="btn btn-primary" style={{ width: '100%' }}>
-              Continue to login
+              {t('verify.continueToLogin')}
             </Link>
           </>
         ) : null}
@@ -82,24 +84,21 @@ export function VerifyEmailPage() {
                 style={{ width: '100%' }}
                 onClick={() => setShowResend(true)}
               >
-                Resend verification email
+                {t('resend.submit')}
               </button>
             )}
             <div className="auth-footer">
-              <Link to="/login">Back to login →</Link>
+              <Link to="/login">{t('verify.backToLogin')}</Link>
             </div>
           </>
         ) : null}
 
         {status === 'missing' ? (
           <>
-            <div className="banner banner-info">
-              No verification token was found in this link. You can request a new
-              verification email below.
-            </div>
+            <div className="banner banner-info">{t('verify.missingBanner')}</div>
             <ResendVerificationForm />
             <div className="auth-footer">
-              <Link to="/login">Back to login →</Link>
+              <Link to="/login">{t('verify.backToLogin')}</Link>
             </div>
           </>
         ) : null}

@@ -52,4 +52,7 @@ public class Ticket
 
     /// <summary>Labels/tags (Wave 2, M:N via <see cref="TicketLabel"/>). Cascade-deleted with the ticket.</summary>
     public ICollection<TicketLabel> Labels { get; set; } = new List<TicketLabel>();
+
+    /// <summary>Attachments (Wave 3, ADR-0018). Cascade-deleted with the ticket (metadata; blob cleanup §7.1).</summary>
+    public ICollection<Attachment> Attachments { get; set; } = new List<Attachment>();
 }

@@ -13,7 +13,7 @@
 
 - **Scheme:** opaque bearer token (DB-backed session) — **[ADR-0001]**.
 - **Header:** `Authorization: Bearer <token>` on every authenticated endpoint.
-- **Tokens are NEVER placed in URLs.** The only token allowed in a URL is the single-use email-verification token, and only in the emailed link (source §9, **[ADR-0006]**).
+- **Tokens are NEVER placed in URLs**, with two deliberate exceptions: the single-use email-verification token in the emailed link (source §9, **[ADR-0006]**), and — Wave 3 — the session token on the **`?access_token=`** query string of the **`/hubs/board` WebSocket handshake** (a browser WS handshake cannot set an `Authorization` header). Over TLS the query string rides inside the encrypted tunnel; nginx `access_log off`s the hub path so the token is never logged (**[ADR-0019]**, §7g).
 - **Public (no auth):** `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/verify-email`, `POST /api/auth/resend-verification`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`, `GET /health/live`, `GET /health/ready`, and static frontend assets.
 - **Authenticated (token required):** everything else, including `GET /api/auth/me`. Missing/invalid/expired/logged-out token → **401**.
 - **Verified required:** authenticated endpoints additionally require `email_verified=true`. An authenticated-but-unverified state is not reachable because login does not issue a session to unverified accounts (it returns 403 first). A token whose user somehow became unverified → **403 account_not_verified**.
@@ -47,7 +47,10 @@ Every non-2xx response uses this exact shape:
 | 401 | `account_blocked` | Login (or session resolution) for a blocked account (ADR-0007) |
 | 403 | `account_not_verified` | Login with correct creds on an unverified account |
 | 403 | `forbidden` | Authenticated but not allowed: non-admin in admin zone; member acting on a non-member team's resource; reset-password on a blocked user (ADR-0007) |
+| 403 | `insufficient_scope` | API key lacks the scope required for the `/api/v1` route (`tickets:read` for GET, `tickets:write` for mutating) (Wave 3, ADR-0021) |
 | 404 | `not_found` | Resource addressed in the URL path (`/{id}`) does not exist |
+| 413 | `payload_too_large` | Attachment upload exceeds `ATTACHMENTS_MAX_BYTES` (Wave 3, ADR-0018) |
+| 415 | `unsupported_media_type` | Attachment content-type not in the allowlist (declared or magic-byte sniffed) (Wave 3, ADR-0018) |
 | 409 | `duplicate_team_name` | Team create/rename collides case-insensitively |
 | 409 | `duplicate_label_name` | Label create/rename collides case-insensitively **within the team** (Wave 2, ADR-0016) |
 | 409 | `team_has_children` | Delete team that has tickets or epics |
@@ -97,12 +100,14 @@ Creates an unverified account and sends a verification email. No session is issu
 {
   "token": "9f2b...base64url-opaque-256bit...",
   "user": { "id": "8e29c1b4-...", "email": "alex@dataart.com", "name": "Alex Doe", "emailVerified": true,
-            "isAdmin": false, "isBlocked": false, "teams": [ { "id": "f1...", "name": "Platform" } ] },
+            "isAdmin": false, "isBlocked": false, "teams": [ { "id": "f1...", "name": "Platform" } ],
+            "locale": "uk" },
   "expiresAt": "2026-07-03T11:26:00Z"
 }
 ```
 - `user` carries the authorization context (`isAdmin`, `isBlocked`, `teams[]`) so the SPA can bootstrap nav + team-selector from a single response (mirror of `/api/auth/me`).
 - `name` is the optional **display name** (`null` when unset). Display rule everywhere a person is shown: `displayName = name?.trim() || email`. Email stays the login/account key; `name` is purely cosmetic.
+- `locale` (Wave 3 i18n, ADR-0022) is the persisted preferred UI language (`"uk"` | `"en"`, or `null` when unset). The SPA reads it on bootstrap to set the active language across devices; `localStorage` remains authoritative for the UI, so `locale` only takes effect when the user has no explicit local choice.
 
 **Errors:**
 - `401 invalid_credentials` — wrong password OR unknown email (identical response, A3).
@@ -163,11 +168,13 @@ SPA bootstrap: returns the current user for the presented token.
 {
   "id": "8e29c1b4-...", "email": "alex@dataart.com", "name": "Alex Doe", "emailVerified": true,
   "isAdmin": false, "isBlocked": false,
-  "teams": [ { "id": "f1...", "name": "Platform" } ]
+  "teams": [ { "id": "f1...", "name": "Platform" } ],
+  "locale": "uk"
 }
 ```
 - `isAdmin` drives the admin-only "Users" nav item; `teams[]` drives the board team-selector and the "load last/first team" client logic (ADR-0007). An admin's `teams[]` may be empty (admins ignore scoping).
 - `name` is the optional display name (`null` when unset); the SPA shows it in the header (falling back to the email). Email remains the account key.
+- `locale` (Wave 3 i18n, ADR-0022) is the persisted preferred UI language (`"uk"` | `"en"`, or `null` when unset). The SPA applies it on bootstrap unless the user has an explicit `localStorage` choice (which wins).
 
 **Errors:** `401 unauthorized` (incl. a token whose user became blocked).
 
@@ -212,17 +219,20 @@ Consumes a single-use reset token and sets a new password.
 
 ### 3a.1 `PUT /api/me/profile` — self (F-04)
 
-Sets or clears the caller's own display name.
+Sets or clears the caller's own display name and — Wave 3 i18n (§5.7, ADR-0022) — optional preferred UI/email locale.
 
 **Request**
 ```json
-{ "name": "Alex Doe" }
+{ "name": "Alex Doe", "locale": "uk" }
 ```
-(or `{ "name": null }` / blank to clear.)
+- `name`: `null`/blank clears the display name (as before).
+- `locale` (**optional**): `"uk"` | `"en"`, or `null`/blank to clear (⇒ unset → client detection / the `uk` default). **NOTE:** the server re-derives the name from `name` on every call, so a client changing only the locale MUST still send the current `name` (else it is cleared) — the SPA language switcher does exactly that.
 
-**200 OK** → the updated `user` object (same shape as `/api/auth/me`), so the SPA can refresh its cached identity. Normalization matches admin `PUT /api/admin/users/{id}/name`: trim; blank/whitespace ⇒ stored `null`; idempotent no-op when unchanged.
+**200 OK** → the updated `user` object (same shape as `/api/auth/me`, now including `locale`), so the SPA can refresh its cached identity. Name normalization matches admin `PUT /api/admin/users/{id}/name`: trim; blank/whitespace ⇒ stored `null`; idempotent no-op when nothing changed. Locale is validated to the supported set.
 
-**Errors:** `400 validation_error` keyed `name` (> 100 chars); `401 unauthorized` (no/blocked session).
+**Errors:** `400 validation_error` keyed `name` (> 100 chars); `400 validation_error` keyed `locale` (not one of `uk`/`en`); `401 unauthorized` (no/blocked session).
+
+- **Localization boundary (ADR-0022):** the backend keeps returning **stable machine error CODES**; the SPA maps `code → localized message` in `frontend/src/lib/errors.ts` (the `errors` i18n namespace). No API-message localization. `locale` here exists only to persist the preference for cross-device bootstrap + (optional) email localization.
 
 ### 3a.2 `POST /api/me/password` — self (F-04)
 
@@ -690,6 +700,169 @@ Label object:
 Resolve → **404**, `RequireTeamAccess` → **403**. Removes the label and its `ticket_labels` rows (cascade). **No** in-use guard (a label is disposable metadata). **204 No Content.** **Errors:** `404`; `403`; `401`.
 
 > Label **assignment** on a ticket is a ticket sub-resource: `PUT /api/tickets/{id}/labels` (§6.7a).
+
+---
+
+## 7c. Attachments (Wave 3, ADR-0018)
+
+> **Authorization (ADR-0007):** attachments are **team-scoped**, resolve-then-check (404-then-403,
+> anti-IDOR). **Upload/delete are team-write; list/download are team-read** — all `M(team of ticket)`
+> ([ASSUMPTION W3-ATT-DELETE]: delete is team-write, not uploader-only). The download is **authenticated**
+> (not a public/presigned URL) and forced-download only — never inline-rendered (§7.1 of WAVE3_DESIGN).
+
+Attachment object (`AttachmentDto`):
+```json
+{ "id": "at01...", "ticketId": "tk1042...", "filename": "screenshot.png",
+  "contentType": "image/png", "sizeBytes": 20480,
+  "uploadedBy": "8e29...", "uploadedByDisplayName": "Alex Doe",
+  "createdAt": "2026-07-01T14:00:00Z" }
+```
+- `filename` is the sanitized display name (path separators + control chars stripped); the on-disk name is a **server-generated opaque storage key**, never returned. `uploadedByDisplayName = name?.trim() || email` computed server-side. The storage key / disk path is never exposed.
+- **Allowed content-types** ([ASSUMPTION W3-ATT-LIMITS]): `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `application/pdf`, `text/plain`, `text/csv`, `application/zip`, and the common office types (`application/msword`, `…wordprocessingml.document`, `application/vnd.ms-excel`, `…spreadsheetml.sheet`). Everything else (esp. `text/html`, `image/svg+xml`, executables) is denied. Max size = `ATTACHMENTS_MAX_BYTES` (default 10 MB).
+
+### 7c.1 `POST /api/tickets/{id}/attachments` — M(team of ticket), **team-write**
+`multipart/form-data` with a single `file` part. Resolve ticket → **404**, `RequireTeamAccess` → **403**. The server streams the part to storage (no full-buffer; the byte cap is enforced while streaming — abort + delete partial on overflow), validates the content-type against the allowlist **by declared type AND a magic-byte sniff**, generates an opaque storage key, persists the metadata row, **auto-watches the uploader**, and raises `attachment_added` (→ activity + notification to watchers, never the actor). **201** → `AttachmentDto`.
+**Errors:** `400 validation_error` (missing/empty file); `413 payload_too_large` (over the cap); `415 unsupported_media_type` (denied or spoofed type); `404`; `403`.
+
+### 7c.2 `GET /api/tickets/{id}/attachments` — M(team of ticket), **team-read**
+Resolve ticket → **404**, `RequireTeamAccess` → **403**. **200** → `AttachmentDto[]` (chronological, oldest-first). **Errors:** `404`; `403`.
+
+### 7c.3 `GET /api/attachments/{id}` — M(team of ticket), **team-read**
+Resolve the attachment → its ticket → its team; **404** if the attachment is absent, **403** if the caller lacks team access (resolve-then-check). Streams the blob with **`Content-Disposition: attachment; filename="<sanitized>"`**, `Content-Type: <stored type>`, **`X-Content-Type-Options: nosniff`**, `Cache-Control: private`. **Never** `inline`. Authenticated (the SPA fetches with the bearer token, not a plain `<a href>`, §10.1). **200** (stream). **Errors:** `404`; `403`.
+
+### 7c.4 `DELETE /api/attachments/{id}` — M(team of ticket), **team-write** ([ASSUMPTION W3-ATT-DELETE])
+Resolve → **404**, `RequireTeamAccess` → **403**. Deletes the metadata row **then** best-effort the blob (a crash leaves an orphan blob, not a dangling row; orphans are reaped, §7.1). Raises `attachment_deleted` (**activity only**, mirrors `comment_deleted`). **204.** **Errors:** `404`; `403`.
+
+> Deleting a **ticket** cascades its attachment **metadata** rows away (Ticket→Attachment CASCADE); blob cleanup for cascaded rows is the orphan-reaper's job (§7.1). Attachments do **not** appear on the board card (keeps the board query lean, like `isWatching`); the SPA loads them via `GET /api/tickets/{id}/attachments` on the ticket detail page.
+
+---
+
+## 7d. Webhooks (Wave 3, ADR-0021)
+
+> **Authorization (ADR-0007):** webhook subscriptions are **team-scoped** `M(team of the subscription)`, resolve-then-check (404-then-403, anti-IDOR). Outbound delivery is signed (`X-TicketTracker-Signature: sha256=HMAC_SHA256(secret, rawBody)`) with retry/backoff (max 5 attempts, ~1m/5m/30m/2h/6h) and an SSRF policy (https-only + a private/loopback/link-local/metadata block re-checked at send time). The signing **secret is shown once** on create/rotate and stored AES-GCM-encrypted (never returned again).
+
+Subscription object (`WebhookSubscriptionDto`) — **never** carries the secret:
+```json
+{ "id": "wh01...", "teamId": "f1...", "url": "https://example.com/hooks/tickets",
+  "eventTypes": ["ticket_moved", "comment_added"], "active": true,
+  "createdAt": "2026-07-01T09:00:00Z", "modifiedAt": "2026-07-01T09:00:00Z" }
+```
+- `eventTypes` is the subscribed canonical `EventType` codes, or the single element `["*"]` (all events, incl. `attachment_added`/`attachment_deleted`). Delivery object (`WebhookDeliveryDto`): `{ id, eventType, status: "pending"|"delivered"|"failed", attempts, lastStatusCode, lastError, createdAt, deliveredAt }`.
+
+### 7d.1 `GET /api/teams/{id}/webhooks` — M(team)
+Resolve team → **404**, `RequireTeamAccess` → **403**. **200** → `WebhookSubscriptionDto[]` (newest-first). **Errors:** `404`; `403`.
+
+### 7d.2 `POST /api/teams/{id}/webhooks` — M(team)
+Body `{ "url": "https://…", "eventTypes": ["ticket_moved"], "active": true }`. Validate `url` (SSRF subscribe-time policy → **400 validation_error** keyed `url` if not https / malformed); each event type must be a canonical code or `"*"` (→ **400** keyed `eventTypes`). The server generates + encrypts a signing secret and returns it **once**. **201** → `{ "subscription": WebhookSubscriptionDto, "secret": "whsec_…" }`. **Errors:** `400`; `404`; `403`.
+
+### 7d.3 `PUT /api/webhooks/{id}` — M(team of subscription)
+Resolve subscription → **404**, `RequireTeamAccess` → **403**. Update `url`/`eventTypes`/`active` (omitted fields keep the stored value; a real change advances `modifiedAt`, no-op diff leaves it). Team is immutable. Optional `"rotateSecret": true` returns a fresh secret once. **200** → `{ "subscription": WebhookSubscriptionDto, "secret": <string when rotated, else null> }`. **Errors:** `400`; `404`; `403`.
+
+### 7d.4 `DELETE /api/webhooks/{id}` — M(team of subscription)
+Resolve → **404**, `RequireTeamAccess` → **403**. Cascade-drops the subscription's deliveries. **204.** **Errors:** `404`; `403`.
+
+### 7d.5 `GET /api/webhooks/{id}/deliveries?limit=&cursor=` — M(team of subscription)
+Resolve → **404**, `RequireTeamAccess` → **403**. Keyset-paged delivery audit (newest-first), payload body excluded. **200** → `{ items: WebhookDeliveryDto[], hasMore, nextCursor }`. **Errors:** `404`; `403`.
+
+### 7d.6 `POST /api/webhooks/{id}/ping` — M(team of subscription)
+Resolve → **404**, `RequireTeamAccess` → **403**. Enqueues one `webhook_ping` test delivery (the same drain sends it). **202** → `{ "deliveryId": "…" }`. **Errors:** `404`; `403`.
+
+---
+
+## 7e. API keys (Wave 3, ADR-0021, Self)
+
+> **Authorization:** API-key management is **Self** by construction (no user id in the path — always the authenticated caller). The raw key (`ptk_<base64url>`) is shown **once** on create; only its hash (SHA-256(HMAC pepper) via `ITokenGenerator`) + a display prefix are stored. A revoked key never authenticates again. Keys authenticate the public `/api/v1` surface only (§7f).
+
+Key object (`ApiKeyDto`) — **never** the raw key or hash:
+```json
+{ "id": "ak01...", "name": "CI pipeline", "prefix": "ptk_ab12cd34",
+  "scopes": ["tickets:read", "tickets:write"], "createdAt": "2026-07-01T10:00:00Z",
+  "lastUsedAt": null, "revokedAt": null }
+```
+
+### 7e.1 `GET /api/me/api-keys` — Self
+**200** → `ApiKeyDto[]` (the caller's keys, active + revoked, newest-first).
+
+### 7e.2 `POST /api/me/api-keys` — Self
+Body `{ "name": "CI pipeline", "scopes": ["tickets:write"] }`. Validate `name` (≤100, non-blank → **400** keyed `name`) and `scopes` (each ∈ `{tickets:read, tickets:write}`; `tickets:write` implies read → **400** keyed `scopes`). Generate a raw key `ptk_<base64url-32-bytes>`, store its hash + prefix, return the raw **once**. **201** → `{ "key": ApiKeyDto, "secret": "ptk_…" }`. **Errors:** `400`.
+
+### 7e.3 `DELETE /api/me/api-keys/{id}` — Self
+Resolve by id **and** `userId = me` → **404** (self-mask for another user's key id). Set `revokedAt = now` (idempotent). **204.**
+
+---
+
+## 7f. Public API — versioned, API-key authenticated (Wave 3, ADR-0021)
+
+> **Auth:** `/api/v1/*` is authenticated **only** by an API key (`Authorization: Bearer ptk_…`). A `ptk_` token on any **non**-`/api/v1` path → **401** (a leaked key is never a session/admin credential); a **session** token on `/api/v1` → **401** (key-only surface). A **scope gate** runs after auth: `tickets:read` for GET, `tickets:write` for mutating; insufficient → **403 `insufficient_scope`**. Team access still applies (the key's owner's **live** memberships/admin flag populate `ICurrentUser`) → **403** for a non-member team, **404** for an unknown resource. These controllers **reuse the exact `TicketService`/`CommentService`** as the session UI — same validation, same DTOs (minus `isWatching`), same status codes as the corresponding session routes (§6/§7). No delete, no admin, no attachment transfer via API keys.
+
+| Method | Path | Scope | Session equivalent |
+|---|---|---|---|
+| GET | `/api/v1/tickets?teamId=&…` | `tickets:read` | §6.1 board/list |
+| GET | `/api/v1/tickets/{id}` | `tickets:read` | §6.2 detail |
+| POST | `/api/v1/tickets` | `tickets:write` | §6.3 create |
+| PUT | `/api/v1/tickets/{id}` | `tickets:write` | §6.4 edit |
+| PATCH | `/api/v1/tickets/{id}/state` | `tickets:write` | §6.5 move |
+| GET | `/api/v1/tickets/{id}/comments` | `tickets:read` | §7.1 list comments |
+| POST | `/api/v1/tickets/{id}/comments` | `tickets:write` | §7.2 add comment |
+
+A ticket/comment created via a key is authored by the **key owner** (`createdBy`/`authorId` = owner). Bodies/errors are identical to the session routes above.
+
+> **`users.locale` (Wave 3 i18n column):** the `AddWave3Webhooks` migration added a nullable `locale` column to `users` (per the migration plan). **Wired in Phase 5 (i18n):** `PUT /api/me/profile` now accepts an optional `locale` (`uk`/`en`/null, validated → 400 keyed `locale`), and `locale` is returned in the user payloads (`/api/auth/me`, login `user`) — see §3.1/§3.6/§3a.1. No dedicated migration in Phase 5 (the column already exists).
+
+---
+
+## 7g. Real-time board hub (Wave 3, ADR-0019)
+
+Not a REST resource — a **SignalR hub** over WebSockets at **`/hubs/board`**, giving the board, ticket-detail page and notification bell live updates. It is **push-primary, poll-fallback**: the SPA keeps the Wave-2 polling as a safety net but throttles it (30s → 120s) while the socket is `Connected`, so a dropped socket never leaves the UI stale ([ASSUMPTION W3-RT-FALLBACK]). No new port — the WebSocket rides the existing `web`→`api` service; nginx proxies `/hubs/` with the connection-upgrade headers and **`access_log off`** (§infra).
+
+**Connection auth ([ASSUMPTION W3-RT-TOKEN]).** A browser WebSocket handshake cannot set an `Authorization` header, so the SPA connects with `accessTokenFactory: () => getToken()` and SignalR sends the **existing opaque session token** as the **`?access_token=`** query-string parameter on the negotiate/connect. The hub's connect gate resolves it with the **same `AuthService.ResolveSessionUserAsync`** the bearer middleware uses (§1) — no JWT, no new credential type. A **null / unknown / expired / blocked** principal **aborts the connection** (no group joins), matching the app-wide "blocked == not authenticated" rule (ADR-0007). Over TLS the query string is inside the encrypted tunnel; nginx must **not** log the hub path so the token never lands in access logs.
+
+**Groups.** On connect the caller joins `user:{userId}` (the notification bell) and `team:{teamId}` for **every team it can access**. Membership in any group is **re-checked server-side** (`CanAccessTeam`) before the join, so a client can never subscribe to a team it cannot see.
+
+**Client→server hub methods** (each access-checked server-side before joining a group):
+
+| Method | Purpose |
+|---|---|
+| `SubscribeTeam(teamId)` | Join `team:{teamId}` — the board subscribes to its team; an admin (empty membership list) opens a team explicitly. Ignored (no join) if the caller lacks team access. |
+| `SubscribeTicket(ticketId, teamId)` | Join `ticket:{ticketId}` for the open ticket-detail page, gated by the ticket's team access. |
+| `UnsubscribeTicket(ticketId)` | Leave `ticket:{ticketId}` when the detail page unmounts. |
+
+**Server→client messages — thin signals only ([ASSUMPTION W3-RT-PAYLOAD]).** No entity payloads ride the socket; a message says only *what* changed (ids), and the SPA reacts by **invalidating the matching React Query key and refetching through the authorized REST endpoint** (so authz is re-checked on the read, never duplicated in the push path):
+
+| Message | Sent to group | Payload | SPA reaction |
+|---|---|---|---|
+| `boardChanged` | `team:{teamId}` | `{ teamId }` | invalidate `['board', teamId, …]` (all filter variants) |
+| `ticketChanged` | `ticket:{ticketId}` | `{ ticketId, teamId }` | invalidate `['ticket', id]`, `['comments', id]`, `['activity', id]`, `['attachments', id]` |
+| `notify` | `user:{userId}` | `{}` (bare ping) | invalidate `['notifications','unread-count']` + `['notifications']` |
+
+**Where the signals come from.** Real-time is a consumer of the **same after-commit event backbone** as activity/notifications, not a new emission path: a `RealtimeNotifier : ITicketEventHandler` (the 5th backbone handler) pushes `boardChanged` + `ticketChanged` for each event's team; `NotificationFanout` pushes the `notify` bell ping to each recipient it wrote a row for (never to the actor). At-most-once: a crash between commit and push drops a signal harmlessly — the throttled poll backstops it and the next event re-syncs.
+
+---
+
+## 7h. Analytics — reporting dashboard (Wave 3, ADR-0020)
+
+> **Authorization (ADR-0007):** the dashboard is **team-scoped** `M(team)`, resolve-then-check (404-then-403, anti-IDOR): resolve `teamId` → **404**, `RequireTeamAccess` → **403** (an admin sees any team). **Session auth only** — this is a UI concern, **not** an API-key (`/api/v1`) surface in Wave 3. **No new tables**: every metric is aggregated **live** over `tickets`, `ticket_labels`, `wip_limits` and `activity_entries` inside the team-scoped query, so a metric can never leak another team's data. The payload is **pre-aggregated** (a few dozen numbers), so the client plots a small fixed number of points regardless of ticket volume (the "100+ tickets" NFR is met server-side).
+
+### 7h.1 `GET /api/analytics/dashboard?teamId=&from=&to=` — M(team)
+
+`teamId` is **required** (missing/empty → **400 validation_error** keyed `teamId`). `from`/`to` are **optional** `YYYY-MM-DD` UTC calendar days; a malformed date → **400** keyed `from`/`to`; `from > to` → **400** keyed `from`. When omitted the range defaults to the **last 12 weeks** ending today. Time-based metrics derive "when did a ticket reach `done`" from the Wave-2 `ticket_moved` activity entries (`data_json {from,to}`), falling back to `modified_at` for tickets with no such entry ([ASSUMPTION W3-AN-TIMING-SOURCE]).
+
+**200** → one `DashboardDto`:
+```jsonc
+{
+  "teamId": "f1...", "from": "2026-04-08", "to": "2026-07-01",
+  "byState":    { "new": 10, "ready_for_implementation": 6, "in_progress": 8, "ready_for_acceptance": 5, "done": 8 },
+  "byPriority": { "low": 4, "medium": 20, "high": 10, "urgent": 3 },
+  "byType":     { "bug": 12, "feature": 20, "fix": 5 },
+  "byLabel":    [ { "labelId": "lb01", "name": "Backend", "color": "#3b82f6", "count": 9 } ],
+  "openVsDone": { "open": 29, "done": 8 },
+  "throughput": [ { "weekStart": "2026-06-22", "doneCount": 4 } ],
+  "cycleTime":  { "avgDays": 6.4, "medianDays": 5.0, "sampleSize": 8 },
+  "overdueCount": 3,
+  "wip": [ { "state": "in_progress", "count": 8, "limit": 3, "overLimit": true } ]
+}
+```
+- `byState`/`byPriority`/`byType` always carry **every** canonical enum key (a state/priority/type with no tickets is `0`). `byLabel` has one row per label the team has (ordered by name); an unlabelled team → `[]`. `openVsDone.open` = every non-done state. `throughput` buckets by **ISO week** (`weekStart` = the Monday of that week), chronological, filtered to the range; a range with no completed tickets → `[]`. `cycleTime` is created→first-reached-done over done tickets in the range; `avgDays`/`medianDays` are **null** with `sampleSize: 0` when empty. `overdueCount` is a live snapshot (`dueDate < today`, not done — not range-bounded). `wip` emits all five states in workflow order with the live count, the team's cap (`limit`, null = unlimited) and `overLimit`. A team with **no tickets** returns an all-zero DTO (no error). **Errors:** `400 validation_error` (missing/invalid `teamId`, bad date, `from>to`); `404` (unknown team); `403` (non-member, non-admin).
 
 ---
 

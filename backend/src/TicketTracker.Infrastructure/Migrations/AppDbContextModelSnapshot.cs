@@ -63,8 +63,119 @@ namespace TicketTracker.Infrastructure.Migrations
 
                     b.ToTable("activity_entries", null, t =>
                         {
-                            t.HasCheckConstraint("ck_activity_entries_event_type", "event_type IN ('ticket_created','ticket_field_changed','ticket_moved','ticket_assignees_changed','comment_added','comment_edited','comment_deleted','ticket_deleted')");
+                            t.HasCheckConstraint("ck_activity_entries_event_type", "event_type IN ('ticket_created','ticket_field_changed','ticket_moved','ticket_assignees_changed','comment_added','comment_edited','comment_deleted','ticket_deleted','attachment_added','attachment_deleted')");
                         });
+                });
+
+            modelBuilder.Entity("TicketTracker.Domain.Entities.ApiKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_used_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Prefix")
+                        .IsRequired()
+                        .HasMaxLength(12)
+                        .HasColumnType("character varying(12)")
+                        .HasColumnName("prefix");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<string>("Scopes")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("scopes");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("token_hash")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ux_api_keys_token_hash");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_api_keys_user");
+
+                    b.ToTable("api_keys", (string)null);
+                });
+
+            modelBuilder.Entity("TicketTracker.Domain.Entities.Attachment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("content_type");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("OriginalFilename")
+                        .IsRequired()
+                        .HasMaxLength(260)
+                        .HasColumnType("character varying(260)")
+                        .HasColumnName("original_filename");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("storage_key");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ticket_id");
+
+                    b.Property<Guid>("UploadedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("uploaded_by");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StorageKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_attachments_storage_key");
+
+                    b.HasIndex("UploadedBy");
+
+                    b.HasIndex("TicketId", "CreatedAt")
+                        .HasDatabaseName("ix_attachments_ticket_created");
+
+                    b.ToTable("attachments", (string)null);
                 });
 
             modelBuilder.Entity("TicketTracker.Domain.Entities.Comment", b =>
@@ -271,7 +382,7 @@ namespace TicketTracker.Infrastructure.Migrations
 
                     b.ToTable("notifications", null, t =>
                         {
-                            t.HasCheckConstraint("ck_notifications_event_type", "event_type IN ('ticket_created','ticket_field_changed','ticket_moved','ticket_assignees_changed','comment_added','comment_edited','comment_deleted','ticket_deleted')");
+                            t.HasCheckConstraint("ck_notifications_event_type", "event_type IN ('ticket_created','ticket_field_changed','ticket_moved','ticket_assignees_changed','comment_added','comment_edited','comment_deleted','ticket_deleted','attachment_added','attachment_deleted')");
                         });
                 });
 
@@ -579,6 +690,11 @@ namespace TicketTracker.Infrastructure.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("is_blocked");
 
+                    b.Property<string>("Locale")
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)")
+                        .HasColumnName("locale");
+
                     b.Property<string>("Name")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -623,6 +739,128 @@ namespace TicketTracker.Infrastructure.Migrations
                         .HasDatabaseName("ux_user_teams_user_team");
 
                     b.ToTable("user_teams", (string)null);
+                });
+
+            modelBuilder.Entity("TicketTracker.Domain.Entities.WebhookDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("attempts");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("delivered_at");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("event_type");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("last_error");
+
+                    b.Property<int?>("LastStatusCode")
+                        .HasColumnType("integer")
+                        .HasColumnName("last_status_code");
+
+                    b.Property<DateTime?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("payload_json");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("SubscriptionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("subscription_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "NextAttemptAt")
+                        .HasDatabaseName("ix_webhook_deliveries_outbox");
+
+                    b.HasIndex("SubscriptionId", "CreatedAt")
+                        .HasDatabaseName("ix_webhook_deliveries_subscription");
+
+                    b.ToTable("webhook_deliveries", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_webhook_deliveries_event_type", "event_type IN ('ticket_created','ticket_field_changed','ticket_moved','ticket_assignees_changed','comment_added','comment_edited','comment_deleted','ticket_deleted','attachment_added','attachment_deleted','webhook_ping')");
+
+                            t.HasCheckConstraint("ck_webhook_deliveries_status", "status IN ('pending','delivered','failed')");
+                        });
+                });
+
+            modelBuilder.Entity("TicketTracker.Domain.Entities.WebhookSubscription", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Active")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("active");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("EventTypes")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("event_types");
+
+                    b.Property<DateTime>("ModifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("modified_at");
+
+                    b.Property<string>("SecretEncrypted")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("secret_encrypted");
+
+                    b.Property<Guid>("TeamId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("team_id");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("url");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("TeamId")
+                        .HasDatabaseName("ix_webhook_subscriptions_team");
+
+                    b.ToTable("webhook_subscriptions", (string)null);
                 });
 
             modelBuilder.Entity("TicketTracker.Domain.Entities.WipLimit", b =>
@@ -675,6 +913,36 @@ namespace TicketTracker.Infrastructure.Migrations
                     b.Navigation("Actor");
 
                     b.Navigation("Ticket");
+                });
+
+            modelBuilder.Entity("TicketTracker.Domain.Entities.ApiKey", b =>
+                {
+                    b.HasOne("TicketTracker.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("TicketTracker.Domain.Entities.Attachment", b =>
+                {
+                    b.HasOne("TicketTracker.Domain.Entities.Ticket", "Ticket")
+                        .WithMany("Attachments")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TicketTracker.Domain.Entities.User", "Uploader")
+                        .WithMany()
+                        .HasForeignKey("UploadedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Ticket");
+
+                    b.Navigation("Uploader");
                 });
 
             modelBuilder.Entity("TicketTracker.Domain.Entities.Comment", b =>
@@ -879,6 +1147,34 @@ namespace TicketTracker.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("TicketTracker.Domain.Entities.WebhookDelivery", b =>
+                {
+                    b.HasOne("TicketTracker.Domain.Entities.WebhookSubscription", "Subscription")
+                        .WithMany("Deliveries")
+                        .HasForeignKey("SubscriptionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Subscription");
+                });
+
+            modelBuilder.Entity("TicketTracker.Domain.Entities.WebhookSubscription", b =>
+                {
+                    b.HasOne("TicketTracker.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TicketTracker.Domain.Entities.Team", "Team")
+                        .WithMany("WebhookSubscriptions")
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Team");
+                });
+
             modelBuilder.Entity("TicketTracker.Domain.Entities.WipLimit", b =>
                 {
                     b.HasOne("TicketTracker.Domain.Entities.Team", "Team")
@@ -905,12 +1201,16 @@ namespace TicketTracker.Infrastructure.Migrations
 
                     b.Navigation("Tickets");
 
+                    b.Navigation("WebhookSubscriptions");
+
                     b.Navigation("WipLimits");
                 });
 
             modelBuilder.Entity("TicketTracker.Domain.Entities.Ticket", b =>
                 {
                     b.Navigation("Assignees");
+
+                    b.Navigation("Attachments");
 
                     b.Navigation("Comments");
 
@@ -928,6 +1228,11 @@ namespace TicketTracker.Infrastructure.Migrations
                     b.Navigation("Sessions");
 
                     b.Navigation("VerificationTokens");
+                });
+
+            modelBuilder.Entity("TicketTracker.Domain.Entities.WebhookSubscription", b =>
+                {
+                    b.Navigation("Deliveries");
                 });
 #pragma warning restore 612, 618
         }

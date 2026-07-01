@@ -1,0 +1,58 @@
+{
+  "secretReveal": {
+    "notice": "Copy this {{label}} now — it is shown only once and cannot be retrieved later.",
+    "copy": "Copy",
+    "copied": "Copied"
+  },
+  "webhooks": {
+    "intro": "Notify an external URL (signed with HMAC-SHA256) when ticket events happen.",
+    "addWebhook": "+ Add webhook",
+    "secretLabel": "signing secret",
+    "done": "Done",
+    "created": "Webhook created.",
+    "disabled": "Webhook disabled.",
+    "enabled": "Webhook enabled.",
+    "secretRotated": "Signing secret rotated.",
+    "pingEnqueued": "Test ping enqueued.",
+    "deleted": "Webhook deleted.",
+    "loading": "Loading webhooks…",
+    "empty": "No webhooks yet. Add one above.",
+    "form": {
+      "ariaLabel": "Create webhook",
+      "url": "Endpoint URL",
+      "urlPlaceholder": "https://example.com/hooks/tickets",
+      "events": "Events",
+      "allEvents": "All events (*)",
+      "create": "Create webhook",
+      "creating": "Creating…",
+      "cancel": "Cancel"
+    },
+    "badge": {
+      "active": "Active",
+      "disabled": "Disabled"
+    },
+    "actions": {
+      "disable": "Disable",
+      "enable": "Enable",
+      "ping": "Ping",
+      "rotateSecret": "Rotate secret",
+      "deliveries": "Deliveries",
+      "delete": "Delete"
+    },
+    "deleteDialog": {
+      "title": "Delete webhook?",
+      "message": "Delete the webhook to <strong>{{url}}</strong>? Its delivery history will be removed too. This cannot be undone.",
+      "confirmLabel": "Delete"
+    },
+    "deliveries": {
+      "loading": "Loading deliveries…",
+      "empty": "No deliveries yet.",
+      "event": "Event",
+      "status": "Status",
+      "attempts": "Attempts",
+      "lastResult": "Last result",
+      "created": "Created",
+      "httpStatus": "HTTP {{code}}"
+    }
+  }
+}

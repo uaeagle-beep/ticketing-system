@@ -3,6 +3,7 @@
 // active admin with 409 last_admin_required, surfaced here as a clear error.
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminUsersApi } from '@/api/endpoints';
 import type { AdminUser, Team } from '@/api/types';
@@ -18,6 +19,7 @@ interface EditUserDialogProps {
 }
 
 export function EditUserDialog({ user, teams, onClose }: EditUserDialogProps) {
+  const { t } = useTranslation('users');
   const queryClient = useQueryClient();
   const toast = useToast();
 
@@ -49,7 +51,7 @@ export function EditUserDialog({ user, teams, onClose }: EditUserDialogProps) {
       }
     },
     onSuccess: () => {
-      toast.showSuccess('User updated.');
+      toast.showSuccess(t('toast.userUpdated'));
       invalidate();
       onClose();
     },
@@ -75,15 +77,15 @@ export function EditUserDialog({ user, teams, onClose }: EditUserDialogProps) {
 
   return (
     <div className="modal-backdrop" onMouseDown={() => !busy && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label="Edit user" onMouseDown={(e) => e.stopPropagation()}>
-        <h3>Edit user</h3>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={t('edit.title')} onMouseDown={(e) => e.stopPropagation()}>
+        <h3>{t('edit.title')}</h3>
         <div className="modal-body">
           <p>
             <strong>{user.email}</strong>
           </p>
 
           <div className="field">
-            <label htmlFor="edit-user-name">Name</label>
+            <label htmlFor="edit-user-name">{t('edit.name')}</label>
             <input
               id="edit-user-name"
               className="input"
@@ -94,7 +96,7 @@ export function EditUserDialog({ user, teams, onClose }: EditUserDialogProps) {
               disabled={busy}
               maxLength={100}
             />
-            <p className="field-hint">Optional. Leave blank to show the email.</p>
+            <p className="field-hint">{t('edit.nameHint')}</p>
           </div>
 
           <div className="field">
@@ -105,18 +107,14 @@ export function EditUserDialog({ user, teams, onClose }: EditUserDialogProps) {
                 onChange={(e) => setIsAdmin(e.target.checked)}
                 disabled={busy}
               />
-              <span>Administrator (full access to all teams)</span>
+              <span>{t('edit.admin')}</span>
             </label>
-            <p className="field-hint">
-              Admins ignore team scoping. The system always keeps at least one active admin.
-            </p>
+            <p className="field-hint">{t('edit.adminHint')}</p>
           </div>
 
           <div className="field">
-            <label>Teams</label>
-            {isAdmin ? (
-              <p className="field-hint">Admins can access all teams; membership is optional.</p>
-            ) : null}
+            <label>{t('edit.teams')}</label>
+            {isAdmin ? <p className="field-hint">{t('edit.adminTeamsHint')}</p> : null}
             <TeamCheckboxList
               teams={teams}
               selected={selectedTeams}
@@ -128,7 +126,7 @@ export function EditUserDialog({ user, teams, onClose }: EditUserDialogProps) {
 
         <div className="modal-actions">
           <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>
-            Cancel
+            {t('edit.cancel')}
           </button>
           <button
             type="button"
@@ -136,7 +134,7 @@ export function EditUserDialog({ user, teams, onClose }: EditUserDialogProps) {
             onClick={() => saveMutation.mutate()}
             disabled={busy}
           >
-            {busy ? 'Saving…' : 'Save changes'}
+            {busy ? t('edit.saving') : t('edit.save')}
           </button>
         </div>
       </div>

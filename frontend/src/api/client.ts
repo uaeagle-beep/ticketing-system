@@ -101,8 +101,13 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   let payload: BodyInit | undefined;
   if (body !== undefined) {
-    headers['Content-Type'] = 'application/json; charset=utf-8';
-    payload = JSON.stringify(body);
+    if (body instanceof FormData) {
+      // Multipart upload: let the browser set Content-Type (with the multipart boundary).
+      payload = body;
+    } else {
+      headers['Content-Type'] = 'application/json; charset=utf-8';
+      payload = JSON.stringify(body);
+    }
   }
 
   const res = await fetch(buildUrl(path, query), {
@@ -132,6 +137,28 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return JSON.parse(text) as T;
 }
 
+/**
+ * Fetch a binary resource (e.g. an attachment download) with the bearer token attached, returning the
+ * response Blob. Attachment downloads are authenticated + forced-download (Content-Disposition:
+ * attachment), so they cannot be a plain `<a href>` — the SPA fetches the blob and triggers a download
+ * (Wave 3, ADR-0018 / §10.1). Errors are parsed into the same ApiError envelope as the JSON path.
+ */
+export async function requestBlob(path: string, signal?: AbortSignal): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(buildUrl(path), { method: 'GET', headers, signal });
+
+  if (res.status === 401 && !AUTH_PUBLIC_PATHS.has(path)) {
+    clearToken();
+  }
+  if (!res.ok) {
+    throw await parseError(res);
+  }
+  return res.blob();
+}
+
 export const http = {
   get: <T>(path: string, query?: RequestOptions['query'], signal?: AbortSignal) =>
     request<T>(path, { method: 'GET', query, signal }),
@@ -139,4 +166,5 @@ export const http = {
   put: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  getBlob: (path: string, signal?: AbortSignal) => requestBlob(path, signal),
 };

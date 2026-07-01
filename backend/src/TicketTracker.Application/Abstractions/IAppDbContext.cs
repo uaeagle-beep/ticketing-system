@@ -33,6 +33,14 @@ public interface IAppDbContext
     DbSet<Label> Labels { get; }
     DbSet<TicketLabel> TicketLabels { get; }
 
+    // Wave 3 (ADR-0018): file attachments on tickets (metadata; blob on the storage volume).
+    DbSet<Attachment> Attachments { get; }
+
+    // Wave 3 (ADR-0021): outbound webhooks (subscriptions + delivery outbox) and API keys.
+    DbSet<WebhookSubscription> WebhookSubscriptions { get; }
+    DbSet<WebhookDelivery> WebhookDeliveries { get; }
+    DbSet<ApiKey> ApiKeys { get; }
+
     /// <summary>Access to the underlying provider for transactions / connectivity checks.</summary>
     DatabaseFacade Database { get; }
 

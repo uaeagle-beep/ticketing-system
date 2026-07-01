@@ -33,6 +33,10 @@ public sealed class AppDbContext : DbContext, IAppDbContext
     public DbSet<ActivityEntry> ActivityEntries => Set<ActivityEntry>();
     public DbSet<Label> Labels => Set<Label>();
     public DbSet<TicketLabel> TicketLabels => Set<TicketLabel>();
+    public DbSet<Attachment> Attachments => Set<Attachment>();
+    public DbSet<WebhookSubscription> WebhookSubscriptions => Set<WebhookSubscription>();
+    public DbSet<WebhookDelivery> WebhookDeliveries => Set<WebhookDelivery>();
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -69,6 +73,9 @@ public sealed class AppDbContext : DbContext, IAppDbContext
             // — this backfills existing rows AND keeps has-pending-model-changes clean.
             e.Property(x => x.EmailNotificationsEnabled)
                 .HasColumnName("email_notifications_enabled").IsRequired().HasDefaultValue(true);
+            // Wave 3 i18n (§4.6): nullable preferred locale (uk|en). Null = unset → client detection / uk.
+            // Stored only in Phase 2; the i18n phase wires it into the profile API + email localization.
+            e.Property(x => x.Locale).HasColumnName("locale").HasMaxLength(5);
             e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
             e.HasIndex(x => x.EmailNormalized).IsUnique(); // case-insensitive uniqueness key (V1)
         });
@@ -439,6 +446,122 @@ public sealed class AppDbContext : DbContext, IAppDbContext
                 .WithMany()
                 .HasForeignKey(x => x.LabelId)
                 .OnDelete(DeleteBehavior.Cascade); // removing a label removes it from all tickets
+        });
+
+        // ---------- Attachment (file metadata; blob on the volume, ADR-0018) ----------
+        // Mirrors the Comment block: ticket CASCADE (owned artifact), uploader RESTRICT (preserve
+        // "who uploaded"). The blob itself lives under storage_key on the named volume (§7.1).
+        b.Entity<Attachment>(e =>
+        {
+            e.ToTable("attachments");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.TicketId).HasColumnName("ticket_id").IsRequired();
+            e.Property(x => x.UploadedBy).HasColumnName("uploaded_by").IsRequired();
+            e.Property(x => x.OriginalFilename).HasColumnName("original_filename").HasMaxLength(260).IsRequired();
+            e.Property(x => x.ContentType).HasColumnName("content_type").HasMaxLength(150).IsRequired();
+            e.Property(x => x.SizeBytes).HasColumnName("size_bytes").IsRequired();
+            e.Property(x => x.StorageKey).HasColumnName("storage_key").HasMaxLength(80).IsRequired();
+            e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+
+            // List a ticket's attachments chronologically (§4.2).
+            e.HasIndex(x => new { x.TicketId, x.CreatedAt }).HasDatabaseName("ix_attachments_ticket_created");
+            // Integrity of the opaque key (the on-disk name is unique).
+            e.HasIndex(x => x.StorageKey).IsUnique().HasDatabaseName("ux_attachments_storage_key");
+
+            e.HasOne(x => x.Ticket)
+                .WithMany(t => t.Attachments)
+                .HasForeignKey(x => x.TicketId)
+                .OnDelete(DeleteBehavior.Cascade); // an attachment is owned by the ticket (mirrors Comment)
+            e.HasOne(x => x.Uploader)
+                .WithMany()
+                .HasForeignKey(x => x.UploadedBy)
+                .OnDelete(DeleteBehavior.Restrict); // preserve "who uploaded" (mirrors created_by/author_id)
+        });
+
+        // ---------- WebhookSubscription (team-owned outbound integration, ADR-0021 §4.3) ----------
+        // Team CASCADE (owned by the team; pure metadata, never blocks team delete), created_by RESTRICT
+        // (preserve who wired it). The signing secret is stored AES-GCM-encrypted, never serialized back.
+        b.Entity<WebhookSubscription>(e =>
+        {
+            e.ToTable("webhook_subscriptions");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.TeamId).HasColumnName("team_id").IsRequired();
+            e.Property(x => x.CreatedBy).HasColumnName("created_by").IsRequired();
+            e.Property(x => x.Url).HasColumnName("url").HasMaxLength(2048).IsRequired();
+            e.Property(x => x.SecretEncrypted).HasColumnName("secret_encrypted").IsRequired();
+            e.Property(x => x.EventTypes).HasColumnName("event_types").IsRequired();
+            e.Property(x => x.Active).HasColumnName("active").IsRequired().HasDefaultValue(true);
+            e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            e.Property(x => x.ModifiedAt).HasColumnName("modified_at").IsRequired();
+            e.HasIndex(x => x.TeamId).HasDatabaseName("ix_webhook_subscriptions_team");
+            e.HasOne(x => x.Team)
+                .WithMany(t => t.WebhookSubscriptions)
+                .HasForeignKey(x => x.TeamId)
+                .OnDelete(DeleteBehavior.Cascade); // a subscription is owned by its team (§4.1)
+            e.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(x => x.CreatedBy)
+                .OnDelete(DeleteBehavior.Restrict); // preserve who wired the integration (§4.1)
+        });
+
+        // ---------- WebhookDelivery (the outbox — mirrors the notification outbox role, ADR-0021 §4.4) ----------
+        var webhookStatusCheck = $"status IN ({WebhookDeliveryStatusCanonical.CheckConstraintValues()})";
+        // event_type here also permits the synthetic 'webhook_ping' test event (POST .../ping) in addition
+        // to the canonical application events.
+        var webhookEventTypeCheck =
+            $"event_type IN ({EventTypeCanonical.CheckConstraintValues()},'webhook_ping')";
+        b.Entity<WebhookDelivery>(e =>
+        {
+            e.ToTable("webhook_deliveries", t =>
+            {
+                t.HasCheckConstraint("ck_webhook_deliveries_status", webhookStatusCheck);
+                t.HasCheckConstraint("ck_webhook_deliveries_event_type", webhookEventTypeCheck);
+            });
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.SubscriptionId).HasColumnName("subscription_id").IsRequired();
+            e.Property(x => x.EventType).HasColumnName("event_type").HasMaxLength(40).IsRequired();
+            e.Property(x => x.PayloadJson).HasColumnName("payload_json").IsRequired();
+            e.Property(x => x.Status).HasColumnName("status").HasMaxLength(16).IsRequired();
+            e.Property(x => x.Attempts).HasColumnName("attempts").IsRequired().HasDefaultValue(0);
+            e.Property(x => x.NextAttemptAt).HasColumnName("next_attempt_at");
+            e.Property(x => x.LastStatusCode).HasColumnName("last_status_code");
+            e.Property(x => x.LastError).HasColumnName("last_error").HasMaxLength(500);
+            e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            e.Property(x => x.DeliveredAt).HasColumnName("delivered_at");
+            // The drain scan: WHERE status='pending' AND next_attempt_at <= now (cheap outbox selector).
+            e.HasIndex(x => new { x.Status, x.NextAttemptAt }).HasDatabaseName("ix_webhook_deliveries_outbox");
+            // Per-subscription audit list (newest-first).
+            e.HasIndex(x => new { x.SubscriptionId, x.CreatedAt }).HasDatabaseName("ix_webhook_deliveries_subscription");
+            e.HasOne(x => x.Subscription)
+                .WithMany(s => s.Deliveries)
+                .HasForeignKey(x => x.SubscriptionId)
+                .OnDelete(DeleteBehavior.Cascade); // deliveries are owned by the subscription (§4.1)
+        });
+
+        // ---------- ApiKey (personal access token, ADR-0021 §4.5) ----------
+        // User CASCADE (a key is owned by its user); token hashed at rest + a display prefix; unique hash.
+        b.Entity<ApiKey>(e =>
+        {
+            e.ToTable("api_keys");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.UserId).HasColumnName("user_id").IsRequired();
+            e.Property(x => x.Name).HasColumnName("name").HasMaxLength(100).IsRequired();
+            e.Property(x => x.TokenHash).HasColumnName("token_hash").HasMaxLength(64).IsFixedLength().IsRequired();
+            e.Property(x => x.Prefix).HasColumnName("prefix").HasMaxLength(12).IsRequired();
+            e.Property(x => x.Scopes).HasColumnName("scopes").HasMaxLength(120).IsRequired();
+            e.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            e.Property(x => x.LastUsedAt).HasColumnName("last_used_at");
+            e.Property(x => x.RevokedAt).HasColumnName("revoked_at");
+            e.HasIndex(x => x.TokenHash).IsUnique().HasDatabaseName("ux_api_keys_token_hash");
+            e.HasIndex(x => x.UserId).HasDatabaseName("ix_api_keys_user");
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade); // a key is owned by its user (§4.1)
         });
     }
 

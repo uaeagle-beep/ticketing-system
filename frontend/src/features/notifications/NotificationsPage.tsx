@@ -4,6 +4,7 @@
 // Refresh = polling + refetch-on-focus (the underlying hooks), no websockets.
 
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import type { Notification } from '@/api/types';
 import { relativeTime } from '@/lib/time';
 import { errorMessage } from '@/lib/errors';
@@ -15,6 +16,7 @@ import {
 } from './useNotifications';
 
 export function NotificationsPage() {
+  const { t } = useTranslation('notifications');
   const navigate = useNavigate();
   const listQuery = useNotificationsList();
   const markRead = useMarkNotificationRead();
@@ -33,7 +35,7 @@ export function NotificationsPage() {
   return (
     <div className="notifications-page">
       <div className="page-header" style={{ marginBottom: 12 }}>
-        <h1 style={{ fontSize: 20 }}>Notifications</h1>
+        <h1 style={{ fontSize: 20 }}>{t('title')}</h1>
         <div className="spacer" />
         <button
           type="button"
@@ -41,19 +43,19 @@ export function NotificationsPage() {
           onClick={() => markAll.mutate()}
           disabled={markAll.isPending || unreadCount === 0}
         >
-          Mark all read
+          {t('markAllRead')}
         </button>
       </div>
 
       {listQuery.isLoading ? (
-        <LoadingState label="Loading notifications…" />
+        <LoadingState label={t('loading')} />
       ) : listQuery.isError ? (
         <ErrorState message={errorMessage(listQuery.error)} onRetry={() => listQuery.refetch()} />
       ) : items.length === 0 ? (
-        <EmptyState title="You're all caught up" message="You have no notifications yet." />
+        <EmptyState title={t('empty.title')} message={t('empty.message')} />
       ) : (
         <>
-          <ul className="notification-list" aria-label="Notifications">
+          <ul className="notification-list" aria-label={t('listLabel')}>
             {items.map((n) => {
               const unread = !n.readAt;
               const tombstone = n.ticketId === null;
@@ -71,7 +73,7 @@ export function NotificationsPage() {
                     // A tombstone with no unread state has nothing to do on click.
                     disabled={tombstone && !unread}
                   >
-                    {unread ? <span className="unread-dot" aria-label="Unread" /> : null}
+                    {unread ? <span className="unread-dot" aria-label={t('unread')} /> : null}
                     <span className="notification-summary">{n.summary}</span>
                     <span className="notification-time">{relativeTime(n.createdAt)}</span>
                   </button>
@@ -88,7 +90,7 @@ export function NotificationsPage() {
                 onClick={() => listQuery.fetchNextPage()}
                 disabled={listQuery.isFetchingNextPage}
               >
-                {listQuery.isFetchingNextPage ? 'Loading…' : 'Load more'}
+                {listQuery.isFetchingNextPage ? t('loadingMore') : t('loadMore')}
               </button>
             </div>
           ) : null}

@@ -4,6 +4,7 @@
 // colored chip so it is recognizable. Label CREATION lives on the management surface (Teams page), so this
 // picker only selects from existing labels; when a team has none it points the user there.
 
+import { useTranslation } from 'react-i18next';
 import type { LabelRef } from '@/api/types';
 import { LabelChip } from '@/components/Badges';
 
@@ -15,16 +16,13 @@ interface LabelPickerProps {
 }
 
 export function LabelPicker({ labels, selectedIds, disabled, onToggle }: LabelPickerProps) {
+  const { t } = useTranslation('labels');
   if (labels.length === 0) {
-    return (
-      <span className="muted">
-        No labels for this team yet — create them on the Teams page.
-      </span>
-    );
+    return <span className="muted">{t('picker.empty')}</span>;
   }
 
   return (
-    <div id="ticket-labels" className="assignee-picker" role="group" aria-label="Labels">
+    <div id="ticket-labels" className="assignee-picker" role="group" aria-label={t('picker.groupLabel')}>
       {labels.map((label) => (
         <label key={label.id} className="assignee-option">
           <input

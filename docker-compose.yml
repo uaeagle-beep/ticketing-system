@@ -67,6 +67,10 @@ services:
       # Connection string + auth/token + SMTP + FRONTEND_URL + migration flag
       # all arrive via env_file (.env). ASP.NET reads the `__`-delimited keys
       # (e.g. ConnectionStrings__Default) natively.
+    volumes:
+      # Durable attachment blob store (Wave 3, ADR-0018 / §9.1). Survives `down`/restart like pgdata.
+      # The mount path must match ATTACHMENTS_ROOT in .env (default below). `down -v` clears it.
+      - attachments:/var/lib/tickettracker/attachments
     depends_on:
       db:
         condition: service_healthy
@@ -112,6 +116,8 @@ services:
 
 volumes:
   pgdata:
+  # Attachment blobs (Wave 3, ADR-0018). Named volume so files survive `down`/restart like pgdata.
+  attachments:
 
 networks:
   ticketing:

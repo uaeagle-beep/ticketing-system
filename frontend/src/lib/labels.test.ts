@@ -40,8 +40,8 @@ describe('typeLabel', () => {
 
 describe('option lists', () => {
   it('stateOptions preserves canonical workflow order', () => {
-    expect(stateOptions.map((o) => o.value)).toEqual([...TICKET_STATES]);
-    expect(stateOptions.map((o) => o.label)).toEqual([
+    expect(stateOptions().map((o) => o.value)).toEqual([...TICKET_STATES]);
+    expect(stateOptions().map((o) => o.label)).toEqual([
       'New',
       'Ready for implementation',
       'In progress',
@@ -51,7 +51,7 @@ describe('option lists', () => {
   });
 
   it('typeOptions pairs each value with its label', () => {
-    expect(typeOptions).toEqual([
+    expect(typeOptions()).toEqual([
       { value: 'bug', label: 'Bug' },
       { value: 'feature', label: 'Feature' },
       { value: 'fix', label: 'Fix' },

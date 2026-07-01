@@ -2,12 +2,14 @@
 // never fetched again — the admin must copy it now and share it out-of-band.
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface GeneratedPasswordNoticeProps {
   password: string;
 }
 
 export function GeneratedPasswordNotice({ password }: GeneratedPasswordNoticeProps) {
+  const { t } = useTranslation('users');
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
@@ -23,15 +25,13 @@ export function GeneratedPasswordNotice({ password }: GeneratedPasswordNoticePro
 
   return (
     <div className="banner banner-info generated-password">
-      <p style={{ margin: '0 0 6px' }}>
-        Copy this password now — it is shown only once and cannot be retrieved later.
-      </p>
+      <p style={{ margin: '0 0 6px' }}>{t('generatedPassword.warning')}</p>
       <div className="row" style={{ gap: 8, alignItems: 'center' }}>
         <code className="generated-password-value" data-testid="generated-password">
           {password}
         </code>
         <button type="button" className="btn btn-secondary btn-sm" onClick={copy}>
-          {copied ? 'Copied' : 'Copy'}
+          {copied ? t('generatedPassword.copied') : t('generatedPassword.copy')}
         </button>
       </div>
     </div>

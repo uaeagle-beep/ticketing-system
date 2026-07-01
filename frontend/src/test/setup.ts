@@ -12,6 +12,13 @@ import { afterAll, afterEach, beforeAll } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import { server } from './server';
 import { setToken } from '@/api/tokenStore';
+import { initI18nForTest } from '@/i18n/config';
+
+// Wave 3 i18n (ADR-0022): the existing suite asserts on ENGLISH strings. Initialize the SAME
+// i18n singleton the app uses, but pinned to `lng: 'en'` (synchronous, bundled English resources)
+// so those assertions keep passing WITHOUT mass rewrites. Ukrainian is exercised only by the new
+// i18n tests, which switch the language explicitly (and afterEach below resets it back to 'en').
+initI18nForTest();
 
 // jsdom performs no layout, so HTMLElement.offsetParent is always null. Several
 // components (notably ConfirmDialog's focus trap) treat `offsetParent === null`
@@ -50,6 +57,9 @@ afterEach(() => {
   } catch {
     /* jsdom always provides localStorage; ignore if unavailable */
   }
+  // Reset the shared i18n singleton back to English so a test that switched to
+  // Ukrainian never bleeds into the next English-asserting test (ADR-0022).
+  initI18nForTest();
 });
 
 afterAll(() => server.close());

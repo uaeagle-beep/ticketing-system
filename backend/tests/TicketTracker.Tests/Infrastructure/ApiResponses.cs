@@ -25,7 +25,9 @@ public sealed record UserDto(
     [property: JsonPropertyName("isAdmin")] bool IsAdmin = false,
     [property: JsonPropertyName("isBlocked")] bool IsBlocked = false,
     [property: JsonPropertyName("teams")] List<TeamRefDto>? Teams = null,
-    [property: JsonPropertyName("name")] string? Name = null);
+    [property: JsonPropertyName("name")] string? Name = null,
+    // Wave 3 i18n (§5.7, ADR-0022): persisted preferred locale (uk|en) or null when unset.
+    [property: JsonPropertyName("locale")] string? Locale = null);
 
 public sealed record AdminUserDto(
     [property: JsonPropertyName("id")] Guid Id,
@@ -155,6 +157,17 @@ public sealed record CommentDto(
     [property: JsonPropertyName("edited")] bool Edited = false,
     [property: JsonPropertyName("editedAt")] DateTime? EditedAt = null);
 
+// Attachment metadata (Wave 3, §5.2, ADR-0018) — never carries the storage key.
+public sealed record AttachmentDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("ticketId")] Guid TicketId,
+    [property: JsonPropertyName("filename")] string Filename,
+    [property: JsonPropertyName("contentType")] string ContentType,
+    [property: JsonPropertyName("sizeBytes")] long SizeBytes,
+    [property: JsonPropertyName("uploadedBy")] Guid UploadedBy,
+    [property: JsonPropertyName("uploadedByDisplayName")] string UploadedByDisplayName,
+    [property: JsonPropertyName("createdAt")] DateTime CreatedAt);
+
 // A team member for the member-visible picker (Wave-1 debt, WAVE2 §5.8 / ADR-0017).
 public sealed record TeamMemberDto(
     [property: JsonPropertyName("id")] Guid Id,
@@ -209,3 +222,94 @@ public sealed record WatchStatusDto(
 public sealed record WatchersDto(
     [property: JsonPropertyName("watching")] bool Watching,
     [property: JsonPropertyName("watchers")] List<WatcherRefDto> Watchers);
+
+// ---------- Wave 3 webhooks + API keys (§5.5/§5.6, ADR-0021) ----------
+
+public sealed record WebhookSubscriptionDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("teamId")] Guid TeamId,
+    [property: JsonPropertyName("url")] string Url,
+    [property: JsonPropertyName("eventTypes")] List<string> EventTypes,
+    [property: JsonPropertyName("active")] bool Active,
+    [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
+    [property: JsonPropertyName("modifiedAt")] DateTime ModifiedAt);
+
+public sealed record CreateWebhookResponseDto(
+    [property: JsonPropertyName("subscription")] WebhookSubscriptionDto Subscription,
+    [property: JsonPropertyName("secret")] string Secret);
+
+public sealed record UpdateWebhookResponseDto(
+    [property: JsonPropertyName("subscription")] WebhookSubscriptionDto Subscription,
+    [property: JsonPropertyName("secret")] string? Secret);
+
+public sealed record WebhookDeliveryDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("eventType")] string EventType,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("attempts")] int Attempts,
+    [property: JsonPropertyName("lastStatusCode")] int? LastStatusCode,
+    [property: JsonPropertyName("lastError")] string? LastError,
+    [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
+    [property: JsonPropertyName("deliveredAt")] DateTime? DeliveredAt);
+
+public sealed record WebhookDeliveryListDto(
+    [property: JsonPropertyName("items")] List<WebhookDeliveryDto> Items,
+    [property: JsonPropertyName("hasMore")] bool HasMore,
+    [property: JsonPropertyName("nextCursor")] string? NextCursor);
+
+public sealed record WebhookPingResponseDto(
+    [property: JsonPropertyName("deliveryId")] Guid DeliveryId);
+
+public sealed record ApiKeyDto(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("prefix")] string Prefix,
+    [property: JsonPropertyName("scopes")] List<string> Scopes,
+    [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
+    [property: JsonPropertyName("lastUsedAt")] DateTime? LastUsedAt,
+    [property: JsonPropertyName("revokedAt")] DateTime? RevokedAt);
+
+public sealed record CreateApiKeyResponseDto(
+    [property: JsonPropertyName("key")] ApiKeyDto Key,
+    [property: JsonPropertyName("secret")] string Secret);
+
+// ---------- Wave 3 analytics dashboard (§5.4, ADR-0020) ----------
+
+public sealed record LabelCountDto(
+    [property: JsonPropertyName("labelId")] Guid LabelId,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("color")] string Color,
+    [property: JsonPropertyName("count")] int Count);
+
+public sealed record OpenVsDoneDto(
+    [property: JsonPropertyName("open")] int Open,
+    [property: JsonPropertyName("done")] int Done);
+
+public sealed record ThroughputBucketDto(
+    [property: JsonPropertyName("weekStart")] DateOnly WeekStart,
+    [property: JsonPropertyName("doneCount")] int DoneCount);
+
+public sealed record CycleTimeDto(
+    [property: JsonPropertyName("avgDays")] double? AvgDays,
+    [property: JsonPropertyName("medianDays")] double? MedianDays,
+    [property: JsonPropertyName("sampleSize")] int SampleSize);
+
+public sealed record WipStateDto(
+    [property: JsonPropertyName("state")] string State,
+    [property: JsonPropertyName("count")] int Count,
+    [property: JsonPropertyName("limit")] int? Limit,
+    [property: JsonPropertyName("overLimit")] bool OverLimit);
+
+public sealed record DashboardDto(
+    [property: JsonPropertyName("teamId")] Guid TeamId,
+    [property: JsonPropertyName("from")] DateOnly From,
+    [property: JsonPropertyName("to")] DateOnly To,
+    [property: JsonPropertyName("byState")] Dictionary<string, int> ByState,
+    [property: JsonPropertyName("byPriority")] Dictionary<string, int> ByPriority,
+    [property: JsonPropertyName("byType")] Dictionary<string, int> ByType,
+    [property: JsonPropertyName("byLabel")] List<LabelCountDto> ByLabel,
+    [property: JsonPropertyName("openVsDone")] OpenVsDoneDto OpenVsDone,
+    [property: JsonPropertyName("throughput")] List<ThroughputBucketDto> Throughput,
+    [property: JsonPropertyName("cycleTime")] CycleTimeDto CycleTime,
+    [property: JsonPropertyName("overdueCount")] int OverdueCount,
+    [property: JsonPropertyName("wip")] List<WipStateDto> Wip);

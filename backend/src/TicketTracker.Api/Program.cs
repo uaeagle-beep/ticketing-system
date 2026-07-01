@@ -49,6 +49,33 @@ builder.Services.Configure<NotificationOptions>(o =>
     o.FrontendUrl = config.GetValue("FRONTEND_URL", "http://localhost:8080") ?? "http://localhost:8080";
 });
 
+builder.Services.Configure<AttachmentOptions>(o =>
+{
+    var config = builder.Configuration;
+    o.Root = config.GetValue("ATTACHMENTS_ROOT", "/var/lib/tickettracker/attachments")
+             ?? "/var/lib/tickettracker/attachments";
+    o.MaxBytes = config.GetValue("ATTACHMENTS_MAX_BYTES", 10L * 1024 * 1024);
+});
+
+// Webhook delivery outbox tuning (Wave 3, ADR-0021, §8.3). WEBHOOKS_ALLOW_INSECURE stays false in prod.
+// FAIL-FAST: this flag disables the entire SSRF defense (http:// + private/loopback/metadata block skipped),
+// so a production deploy must never enable it — a silent misconfig would open SSRF to the compose network /
+// cloud metadata. Refuse to boot in Production if it is set true (mirrors the WEBHOOK_SIGNING_KEY guard).
+var webhooksAllowInsecure = builder.Configuration.GetValue("WEBHOOKS_ALLOW_INSECURE", false);
+if (webhooksAllowInsecure && builder.Environment.IsProduction())
+    throw new InvalidOperationException(
+        "WEBHOOKS_ALLOW_INSECURE must not be true in Production: it disables the webhook SSRF defense " +
+        "(https-only + private/loopback/link-local/metadata block). Unset it or set it to false (see ADR-0021 §7.4).");
+builder.Services.Configure<WebhookOptions>(o =>
+{
+    var config = builder.Configuration;
+    o.Enabled = config.GetValue("WEBHOOKS_ENABLED", true);
+    o.WorkerPollSeconds = config.GetValue("WEBHOOK_WORKER_POLL_SECONDS", 10);
+    o.MaxAttempts = config.GetValue("WEBHOOK_MAX_ATTEMPTS", 5);
+    o.TimeoutSeconds = config.GetValue("WEBHOOK_TIMEOUT_SECONDS", 10);
+    o.AllowInsecure = webhooksAllowInsecure;
+});
+
 builder.Services.Configure<SmtpOptions>(o =>
 {
     var config = builder.Configuration;
@@ -75,6 +102,49 @@ builder.Services.AddApplicationServices();
 builder.Services.AddSingleton<TicketTracker.Application.Abstractions.IPasswordGenerator,
     TicketTracker.Infrastructure.Security.CryptoPasswordGenerator>();
 
+// Attachment blob storage (Wave 3, ADR-0018). Production binds the local-filesystem impl; the test
+// factory replaces IAttachmentStorage with an in-memory impl so integration tests never touch disk.
+builder.Services.AddSingleton<TicketTracker.Application.Abstractions.IAttachmentStorage,
+    TicketTracker.Infrastructure.Storage.LocalFileAttachmentStorage>();
+
+// ---------- Webhooks (Wave 3, ADR-0021) ----------
+// AES-GCM secret protector keyed by WEBHOOK_SIGNING_KEY. Like AUTH_TOKEN_SECRET: FAIL-FAST in Production on
+// a missing/empty key; other environments fall back to a built-in dev key so tests run without configuration.
+const string developmentWebhookSigningKey = "ticket-tracker-dev-webhook-signing-key-not-for-production";
+var webhookSigningKey = builder.Configuration["WEBHOOK_SIGNING_KEY"];
+if (string.IsNullOrWhiteSpace(webhookSigningKey))
+{
+    if (builder.Environment.IsProduction())
+        throw new InvalidOperationException(
+            "WEBHOOK_SIGNING_KEY is required in Production but was not configured. " +
+            "Set a strong random value (see .env.example / ADR-0021).");
+    webhookSigningKey = developmentWebhookSigningKey;
+}
+builder.Services.AddSingleton<TicketTracker.Application.Abstractions.ISecretProtector>(
+    _ => new TicketTracker.Infrastructure.Security.AesGcmSecretProtector(webhookSigningKey));
+
+// SSRF policy (subscribe-time scheme check + send-time private-IP block). Reads WebhookOptions.AllowInsecure.
+builder.Services.AddScoped<TicketTracker.Application.Abstractions.IWebhookUrlValidator,
+    TicketTracker.Infrastructure.Webhooks.WebhookUrlValidator>();
+
+// Outbound HTTP for webhook delivery via IHttpClientFactory. AllowAutoRedirect=false so a subscriber can
+// never 3xx-bounce the request to an internal target (SSRF, §7.4). The per-attempt timeout is applied in
+// the sender via a linked CTS. The test factory replaces IWebhookSender with a fake (no real sockets).
+builder.Services.AddHttpClient(TicketTracker.Api.Webhooks.HttpWebhookSender.HttpClientName)
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddScoped<TicketTracker.Application.Abstractions.IWebhookSender,
+    TicketTracker.Api.Webhooks.HttpWebhookSender>();
+
+// ---------- Real-time board via SignalR (Wave 3, ADR-0019) ----------
+// The hub at /hubs/board is a near-empty transport shell (connect-auth + group join/leave); all push
+// correctness lives in the RealtimeNotifier event-backbone handler over the IRealtimeNotifier seam.
+builder.Services.AddSignalR();
+// Bind the production notifier AFTER AddApplicationServices() (which TryAdds a NullRealtimeNotifier default),
+// so the last registration wins when a single IRealtimeNotifier is resolved. Scoped to match the seam's
+// lifetime alongside the scoped handlers; IHubContext<BoardHub> is itself a singleton the wrapper captures.
+builder.Services.AddScoped<IRealtimeNotifier,
+    TicketTracker.Api.Realtime.SignalRRealtimeNotifier>();
+
 // ---------- Auth current-user (scoped); exposed via ICurrentUser ----------
 builder.Services.AddScoped<CurrentUserAccessor>();
 builder.Services.AddScoped<ICurrentUser>(sp => sp.GetRequiredService<CurrentUserAccessor>());
@@ -86,6 +156,10 @@ builder.Services.AddHostedService<DatabaseInitializer>();
 // ---------- Notification email outbox worker (ADR-0014). Thin timer over DrainOnceAsync; the test
 // factory REMOVES this hosted service so no timer fires during tests (§7.5). ----------
 builder.Services.AddHostedService<NotificationEmailWorker>();
+
+// ---------- Webhook delivery outbox worker (Wave 3, ADR-0021, §8). Thin timer over DrainOnceAsync; the
+// test factory REMOVES this hosted service too so no timer fires during tests (R-A13). ----------
+builder.Services.AddHostedService<WebhookDeliveryWorker>();
 
 // ---------- CORS (SCT-001 / AUTH-006) ----------
 // Development: permissive policy for direct API testing.
@@ -127,6 +201,12 @@ if (enableCors)
 app.UseMiddleware<BearerAuthMiddleware>();
 
 app.MapControllers();
+
+// Real-time hub (Wave 3, ADR-0019). BearerAuthMiddleware only guards /api/*, so /hubs/board passes through
+// untouched — the hub does its OWN connect-time auth (?access_token= → AuthService.ResolveSessionUserAsync)
+// and aborts unauthenticated/blocked connections. nginx proxies this path with the WebSocket Upgrade headers
+// and access_log off (so the token in the query string is never logged, §9.2).
+app.MapHub<TicketTracker.Api.Realtime.BoardHub>(TicketTracker.Api.Realtime.BoardHub.Path);
 
 app.Run();
 

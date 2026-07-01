@@ -53,7 +53,16 @@ public enum ServiceErrorCode
     WipLimitReached,
 
     /// <summary>400 — verify-email: token unknown, consumed, or expired.</summary>
-    InvalidOrExpiredToken
+    InvalidOrExpiredToken,
+
+    /// <summary>413 — attachment upload exceeds ATTACHMENTS_MAX_BYTES (Wave 3, ADR-0018).</summary>
+    PayloadTooLarge,
+
+    /// <summary>415 — attachment content-type not in the allowlist, declared or sniffed (Wave 3, ADR-0018).</summary>
+    UnsupportedMediaType,
+
+    /// <summary>403 — the API key lacks the scope required for the requested /api/v1 route (Wave 3, ADR-0021).</summary>
+    InsufficientScope
 }
 
 /// <summary>
@@ -81,6 +90,9 @@ public static class ServiceErrorCodes
         ServiceErrorCode.EpicReferencedByTickets => "epic_referenced_by_tickets",
         ServiceErrorCode.WipLimitReached => "wip_limit_reached",
         ServiceErrorCode.InvalidOrExpiredToken => "invalid_or_expired_token",
+        ServiceErrorCode.PayloadTooLarge => "payload_too_large",
+        ServiceErrorCode.UnsupportedMediaType => "unsupported_media_type",
+        ServiceErrorCode.InsufficientScope => "insufficient_scope",
         _ => "error"
     };
 }

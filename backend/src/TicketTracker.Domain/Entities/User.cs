@@ -47,6 +47,13 @@ public class User
     /// </summary>
     public bool EmailNotificationsEnabled { get; set; } = true;
 
+    /// <summary>
+    /// Preferred UI/email locale (Wave 3 i18n column, [ASSUMPTION W3-I18N-PERSIST]). Nullable <c>uk|en</c>;
+    /// null = "unset" → the SPA/emails fall back to client detection / the <c>uk</c> default. Wave 3 Phase 2
+    /// only STORES this column (no behaviour yet); the i18n phase (Phase 5) wires it into the profile API + emails.
+    /// </summary>
+    public string? Locale { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public ICollection<EmailVerificationToken> VerificationTokens { get; set; } = new List<EmailVerificationToken>();

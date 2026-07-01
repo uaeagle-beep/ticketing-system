@@ -17,6 +17,7 @@ import { authApi } from '@/api/endpoints';
 import { ApiError } from '@/api/client';
 import { clearToken, getToken, setToken, subscribeToken } from '@/api/tokenStore';
 import type { AuthUser, LoginResponse } from '@/api/types';
+import { applyProfileLocale } from '@/i18n/config';
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 
@@ -52,6 +53,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((me) => {
         if (!active) return;
         if (me.emailVerified) {
+          // Resolution order step 2 (ADR-0022): apply the persisted profile locale on bootstrap
+          // ONLY when the user has no explicit localStorage choice (localStorage wins).
+          applyProfileLocale(me.locale);
           setUser(me);
           setStatus('authenticated');
         } else {
@@ -93,6 +97,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(
     (response: LoginResponse) => {
       setToken(response.token);
+      // Apply the just-logged-in user's persisted locale (localStorage still wins, ADR-0022).
+      applyProfileLocale(response.user.locale);
       setUser(response.user);
       setStatus('authenticated');
     },

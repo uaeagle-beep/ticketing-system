@@ -3,6 +3,7 @@
 // show the one-time password; otherwise we close.
 
 import { useState, type FormEvent } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminUsersApi } from '@/api/endpoints';
 import type { CreateUserResponse, Team } from '@/api/types';
@@ -19,6 +20,7 @@ interface CreateUserDialogProps {
 }
 
 export function CreateUserDialog({ teams, onClose }: CreateUserDialogProps) {
+  const { t } = useTranslation('users');
   const queryClient = useQueryClient();
   const toast = useToast();
 
@@ -47,7 +49,7 @@ export function CreateUserDialog({ teams, onClose }: CreateUserDialogProps) {
         // Keep the dialog open to surface the one-time password.
         setCreated(result);
       } else {
-        toast.showSuccess('User created.');
+        toast.showSuccess(t('toast.userCreated'));
         onClose();
       }
     },
@@ -72,11 +74,11 @@ export function CreateUserDialog({ teams, onClose }: CreateUserDialogProps) {
     e.preventDefault();
     setFieldError(null);
     if (!email.trim()) {
-      setFieldError('Email is required.');
+      setFieldError(t('create.emailRequired'));
       return;
     }
     if (!autoGenerate && password.length < 8) {
-      setFieldError('Password must be at least 8 characters, or choose auto-generate.');
+      setFieldError(t('create.passwordTooShort'));
       return;
     }
     createMutation.mutate();
@@ -86,11 +88,13 @@ export function CreateUserDialog({ teams, onClose }: CreateUserDialogProps) {
   if (created) {
     return (
       <div className="modal-backdrop" onMouseDown={onClose}>
-        <div className="modal" role="dialog" aria-modal="true" aria-label="User created" onMouseDown={(e) => e.stopPropagation()}>
-          <h3>User created</h3>
+        <div className="modal" role="dialog" aria-modal="true" aria-label={t('create.createdTitle')} onMouseDown={(e) => e.stopPropagation()}>
+          <h3>{t('create.createdTitle')}</h3>
           <div className="modal-body">
             <p>
-              <strong>{created.user.email}</strong> was created.
+              <Trans t={t} i18nKey="create.createdBody" values={{ email: created.user.email }}>
+                <strong>{created.user.email}</strong> was created.
+              </Trans>
             </p>
             {created.generatedPassword ? (
               <GeneratedPasswordNotice password={created.generatedPassword} />
@@ -98,7 +102,7 @@ export function CreateUserDialog({ teams, onClose }: CreateUserDialogProps) {
           </div>
           <div className="modal-actions">
             <button type="button" className="btn btn-primary" onClick={onClose}>
-              Done
+              {t('create.done')}
             </button>
           </div>
         </div>
@@ -110,14 +114,14 @@ export function CreateUserDialog({ teams, onClose }: CreateUserDialogProps) {
 
   return (
     <div className="modal-backdrop" onMouseDown={() => !busy && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label="Create user" onMouseDown={(e) => e.stopPropagation()}>
-        <h3>Create user</h3>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={t('create.title')} onMouseDown={(e) => e.stopPropagation()}>
+        <h3>{t('create.title')}</h3>
         <form onSubmit={submit}>
           <div className="modal-body">
             {fieldError ? <div className="banner banner-error">{fieldError}</div> : null}
 
             <div className="field">
-              <label htmlFor="create-user-email">Email</label>
+              <label htmlFor="create-user-email">{t('create.email')}</label>
               <input
                 id="create-user-email"
                 className="input"
@@ -131,7 +135,7 @@ export function CreateUserDialog({ teams, onClose }: CreateUserDialogProps) {
             </div>
 
             <div className="field">
-              <label htmlFor="create-user-name">Name</label>
+              <label htmlFor="create-user-name">{t('create.name')}</label>
               <input
                 id="create-user-name"
                 className="input"
@@ -142,7 +146,7 @@ export function CreateUserDialog({ teams, onClose }: CreateUserDialogProps) {
                 disabled={busy}
                 maxLength={100}
               />
-              <p className="field-hint">Optional. Leave blank to show the email.</p>
+              <p className="field-hint">{t('create.nameHint')}</p>
             </div>
 
             <div className="field">
@@ -153,13 +157,13 @@ export function CreateUserDialog({ teams, onClose }: CreateUserDialogProps) {
                   onChange={(e) => setAutoGenerate(e.target.checked)}
                   disabled={busy}
                 />
-                <span>Generate a strong password automatically</span>
+                <span>{t('create.autoGenerate')}</span>
               </label>
             </div>
 
             {!autoGenerate ? (
               <div className="field">
-                <label htmlFor="create-user-password">Password</label>
+                <label htmlFor="create-user-password">{t('create.password')}</label>
                 <input
                   id="create-user-password"
                   className="input"
@@ -169,7 +173,7 @@ export function CreateUserDialog({ teams, onClose }: CreateUserDialogProps) {
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={busy}
                 />
-                <p className="field-hint">At least 8 characters.</p>
+                <p className="field-hint">{t('create.passwordHint')}</p>
               </div>
             ) : null}
 
@@ -181,12 +185,12 @@ export function CreateUserDialog({ teams, onClose }: CreateUserDialogProps) {
                   onChange={(e) => setIsAdmin(e.target.checked)}
                   disabled={busy}
                 />
-                <span>Administrator (full access to all teams)</span>
+                <span>{t('create.admin')}</span>
               </label>
             </div>
 
             <div className="field">
-              <label>Teams</label>
+              <label>{t('create.teams')}</label>
               <TeamCheckboxList
                 teams={teams}
                 selected={selectedTeams}
@@ -198,10 +202,10 @@ export function CreateUserDialog({ teams, onClose }: CreateUserDialogProps) {
 
           <div className="modal-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>
-              Cancel
+              {t('create.cancel')}
             </button>
             <button type="submit" className="btn btn-primary" disabled={busy || !email.trim()}>
-              {busy ? 'Creating…' : 'Create user'}
+              {busy ? t('create.creating') : t('create.submit')}
             </button>
           </div>
         </form>

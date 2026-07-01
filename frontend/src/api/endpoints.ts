@@ -5,11 +5,15 @@ import { http } from './client';
 import type {
   ActivityList,
   AdminUser,
+  ApiKey,
+  Attachment,
   AuthUser,
   Board,
   BoardFilters,
   ChangePasswordRequest,
   Comment,
+  CreateApiKeyRequest,
+  CreateApiKeyResponse,
   CreateCommentRequest,
   CreateEpicRequest,
   CreateTeamRequest,
@@ -17,6 +21,10 @@ import type {
   CreateTicketRequest,
   CreateUserRequest,
   CreateUserResponse,
+  CreateWebhookRequest,
+  CreateWebhookResponse,
+  Dashboard,
+  DashboardRange,
   EditCommentRequest,
   Epic,
   Label,
@@ -47,8 +55,13 @@ import type {
   UpdateNotificationSettingsRequest,
   UpdateProfileRequest,
   UpdateTicketRequest,
+  UpdateWebhookRequest,
+  UpdateWebhookResponse,
   UpdateWipLimitsRequest,
   VerifyEmailRequest,
+  WebhookDeliveryList,
+  WebhookPingResponse,
+  WebhookSubscription,
   Watchers,
   WatchStatus,
 } from './types';
@@ -220,6 +233,26 @@ export const commentsApi = {
   remove: (commentId: string) => http.delete<void>(`/comments/${commentId}`),
 };
 
+// ---- Attachments (Wave 3, §5.2, ADR-0018; M(team of ticket)) ----
+export const attachmentsApi = {
+  // GET /api/tickets/{id}/attachments -> 200 Attachment[] (chronological, team-read)
+  list: (ticketId: string, signal?: AbortSignal) =>
+    http.get<Attachment[]>(`/tickets/${ticketId}/attachments`, undefined, signal),
+
+  // POST /api/tickets/{id}/attachments (multipart, team-write) -> 201 Attachment
+  upload: (ticketId: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return http.post<Attachment>(`/tickets/${ticketId}/attachments`, form);
+  },
+
+  // GET /api/attachments/{id} -> the blob (authenticated, forced-download; fetched with the bearer token)
+  download: (id: string, signal?: AbortSignal) => http.getBlob(`/attachments/${id}`, signal),
+
+  // DELETE /api/attachments/{id} -> 204 (team-write; removes row + blob)
+  remove: (id: string) => http.delete<void>(`/attachments/${id}`),
+};
+
 // ---- Labels (Wave 2, §5.6, ADR-0016; M(team)) ----
 export const labelsApi = {
   // GET /api/labels?teamId= -> 200 Label[] (a team's labels, ordered by name)
@@ -234,6 +267,54 @@ export const labelsApi = {
 
   // DELETE /api/labels/{id} -> 204 (disposable; removes from all tickets)
   remove: (id: string) => http.delete<void>(`/labels/${id}`),
+};
+
+// ---- Webhooks (Wave 3, §5.5, ADR-0021; M(team)) ----
+export const webhooksApi = {
+  // GET /api/teams/{id}/webhooks -> 200 WebhookSubscription[] (a team's subscriptions)
+  list: (teamId: string, signal?: AbortSignal) =>
+    http.get<WebhookSubscription[]>(`/teams/${teamId}/webhooks`, undefined, signal),
+
+  // POST /api/teams/{id}/webhooks -> 201 { subscription, secret } (secret shown once)
+  create: (teamId: string, body: CreateWebhookRequest) =>
+    http.post<CreateWebhookResponse>(`/teams/${teamId}/webhooks`, body),
+
+  // PUT /api/webhooks/{id} -> 200 { subscription, secret? } (secret only when rotated)
+  update: (id: string, body: UpdateWebhookRequest) =>
+    http.put<UpdateWebhookResponse>(`/webhooks/${id}`, body),
+
+  // DELETE /api/webhooks/{id} -> 204 (cascades deliveries)
+  remove: (id: string) => http.delete<void>(`/webhooks/${id}`),
+
+  // GET /api/webhooks/{id}/deliveries?limit=&cursor= -> 200 WebhookDeliveryList (audit, newest-first)
+  deliveries: (id: string, cursor?: string, signal?: AbortSignal) =>
+    http.get<WebhookDeliveryList>(`/webhooks/${id}/deliveries`, { cursor }, signal),
+
+  // POST /api/webhooks/{id}/ping -> 202 { deliveryId } (enqueue a test delivery)
+  ping: (id: string) => http.post<WebhookPingResponse>(`/webhooks/${id}/ping`),
+};
+
+// ---- API keys (Wave 3, §5.6, ADR-0021; Self) ----
+export const apiKeysApi = {
+  // GET /api/me/api-keys -> 200 ApiKey[] (the caller's keys, newest-first)
+  list: (signal?: AbortSignal) => http.get<ApiKey[]>('/me/api-keys', undefined, signal),
+
+  // POST /api/me/api-keys -> 201 { key, secret } (raw ptk_ key shown once)
+  create: (body: CreateApiKeyRequest) => http.post<CreateApiKeyResponse>('/me/api-keys', body),
+
+  // DELETE /api/me/api-keys/{id} -> 204 (revoke; idempotent)
+  revoke: (id: string) => http.delete<void>(`/me/api-keys/${id}`),
+};
+
+// ---- Analytics (Wave 3, §5.4, ADR-0020; M(team)) ----
+export const analyticsApi = {
+  // GET /api/analytics/dashboard?teamId=&from=&to= -> 200 Dashboard (composite, read-only, team-scoped)
+  dashboard: (teamId: string, range: DashboardRange, signal?: AbortSignal) =>
+    http.get<Dashboard>(
+      '/analytics/dashboard',
+      { teamId, from: range.from, to: range.to },
+      signal,
+    ),
 };
 
 // ---- Notifications (Wave 2, §8, Self) ----

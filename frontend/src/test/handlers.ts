@@ -13,9 +13,14 @@ import { http, HttpResponse } from 'msw';
 import type {
   ActivityList,
   AdminUser,
+  ApiKey,
+  Attachment,
   AuthUser,
   Board,
   Comment,
+  CreateApiKeyResponse,
+  CreateWebhookResponse,
+  Dashboard,
   Epic,
   Label,
   LoginResponse,
@@ -26,8 +31,11 @@ import type {
   TeamMember,
   TicketDetail,
   UnreadCount,
+  UpdateWebhookResponse,
   Watchers,
   WatchStatus,
+  WebhookDeliveryList,
+  WebhookSubscription,
 } from '@/api/types';
 
 // Same base path the real client uses (API_BASE = '/api').
@@ -45,6 +53,9 @@ export const sampleUser: AuthUser = {
   isAdmin: true,
   isBlocked: false,
   teams: [],
+  // Wave 3 i18n (§5.7): unset by default so the SPA falls back to localStorage/uk in the app
+  // (tests pin i18n to 'en' via initI18nForTest regardless of this value).
+  locale: null,
 };
 
 export const sampleLogin: LoginResponse = {
@@ -107,6 +118,114 @@ export const sampleLabels: Label[] = [
   { id: 'lb02-urgent', teamId: sampleTeam.id, name: 'Urgent', color: '#ef4444' },
 ];
 
+// Webhook subscription + delivery fixtures (Wave 3, §5.5, ADR-0021).
+export const sampleWebhook: WebhookSubscription = {
+  id: 'wh01-ci-hook',
+  teamId: sampleTeam.id,
+  url: 'https://example.com/hooks/tickets',
+  eventTypes: ['ticket_moved', 'comment_added'],
+  active: true,
+  createdAt: '2026-06-24T09:00:00Z',
+  modifiedAt: '2026-06-24T09:00:00Z',
+};
+
+export const sampleWebhookDeliveries: WebhookDeliveryList = {
+  items: [
+    {
+      id: 'wd01-delivered',
+      eventType: 'ticket_moved',
+      status: 'delivered',
+      attempts: 1,
+      lastStatusCode: 200,
+      lastError: null,
+      createdAt: '2026-06-24T09:05:00Z',
+      deliveredAt: '2026-06-24T09:05:01Z',
+    },
+    {
+      id: 'wd02-failed',
+      eventType: 'comment_added',
+      status: 'failed',
+      attempts: 5,
+      lastStatusCode: 500,
+      lastError: 'HTTP 500',
+      createdAt: '2026-06-24T09:06:00Z',
+      deliveredAt: null,
+    },
+  ],
+  hasMore: false,
+  nextCursor: null,
+};
+
+// API-key fixture (Wave 3, §5.6, ADR-0021).
+export const sampleApiKey: ApiKey = {
+  id: 'ak01-ci',
+  name: 'CI pipeline',
+  prefix: 'ptk_ab12cd34',
+  scopes: ['tickets:read', 'tickets:write'],
+  createdAt: '2026-06-24T10:00:00Z',
+  lastUsedAt: null,
+  revokedAt: null,
+};
+
+// Analytics dashboard fixture (Wave 3, §5.4, ADR-0020). Contract-shaped, pre-aggregated counts/buckets.
+export const sampleDashboard: Dashboard = {
+  teamId: sampleTeam.id,
+  from: '2026-04-08',
+  to: '2026-07-01',
+  byState: {
+    new: 10,
+    ready_for_implementation: 6,
+    in_progress: 8,
+    ready_for_acceptance: 5,
+    done: 8,
+  },
+  byPriority: { low: 4, medium: 20, high: 10, urgent: 3 },
+  byType: { bug: 12, feature: 20, fix: 5 },
+  byLabel: [{ labelId: 'lb01-backend', name: 'Backend', color: '#3b82f6', count: 9 }],
+  openVsDone: { open: 29, done: 8 },
+  throughput: [
+    { weekStart: '2026-06-15', doneCount: 3 },
+    { weekStart: '2026-06-22', doneCount: 4 },
+  ],
+  cycleTime: { avgDays: 6.4, medianDays: 5.0, sampleSize: 8 },
+  overdueCount: 3,
+  wip: [
+    { state: 'new', count: 10, limit: null, overLimit: false },
+    { state: 'ready_for_implementation', count: 6, limit: 5, overLimit: true },
+    { state: 'in_progress', count: 8, limit: 3, overLimit: true },
+    { state: 'ready_for_acceptance', count: 5, limit: null, overLimit: false },
+    { state: 'done', count: 8, limit: null, overLimit: false },
+  ],
+};
+
+// An empty-team dashboard (all-zero) for the empty-state test.
+export const emptyDashboard: Dashboard = {
+  teamId: sampleTeam.id,
+  from: '2026-04-08',
+  to: '2026-07-01',
+  byState: {
+    new: 0,
+    ready_for_implementation: 0,
+    in_progress: 0,
+    ready_for_acceptance: 0,
+    done: 0,
+  },
+  byPriority: { low: 0, medium: 0, high: 0, urgent: 0 },
+  byType: { bug: 0, feature: 0, fix: 0 },
+  byLabel: [],
+  openVsDone: { open: 0, done: 0 },
+  throughput: [],
+  cycleTime: { avgDays: null, medianDays: null, sampleSize: 0 },
+  overdueCount: 0,
+  wip: [
+    { state: 'new', count: 0, limit: null, overLimit: false },
+    { state: 'ready_for_implementation', count: 0, limit: null, overLimit: false },
+    { state: 'in_progress', count: 0, limit: null, overLimit: false },
+    { state: 'ready_for_acceptance', count: 0, limit: null, overLimit: false },
+    { state: 'done', count: 0, limit: null, overLimit: false },
+  ],
+};
+
 export const sampleComment: Comment = {
   id: 'cm01-looks-fixed',
   ticketId: sampleTicketDetail.id,
@@ -117,6 +236,18 @@ export const sampleComment: Comment = {
   createdAt: '2026-06-23T13:00:00Z',
   edited: false,
   editedAt: null,
+};
+
+// Attachment fixture (Wave 3, §5.2, ADR-0018).
+export const sampleAttachment: Attachment = {
+  id: 'at01-screenshot',
+  ticketId: sampleTicketDetail.id,
+  filename: 'screenshot.png',
+  contentType: 'image/png',
+  sizeBytes: 20480,
+  uploadedBy: sampleUser.id,
+  uploadedByDisplayName: sampleUser.email,
+  createdAt: '2026-06-23T13:30:00Z',
 };
 
 // Team members for the member-visible picker (Wave 2 §5.8 / ADR-0017).
@@ -308,8 +439,11 @@ export const handlers = [
 
   // Self-service account (§4.5, F-04)
   http.put(`${API}/me/profile`, async ({ request }) => {
-    const body = (await request.json()) as { name: string | null };
-    return ok<AuthUser>({ ...sampleUser, name: body.name }, 200);
+    const body = (await request.json()) as { name: string | null; locale?: string | null };
+    return ok<AuthUser>(
+      { ...sampleUser, name: body.name, locale: body.locale ?? sampleUser.locale },
+      200,
+    );
   }),
   http.post(`${API}/me/password`, () => new HttpResponse(null, { status: 204 })),
 
@@ -392,6 +526,23 @@ export const handlers = [
   // DELETE /api/comments/{id} -> 204 (author or admin, F-12).
   http.delete(`${API}/comments/:id`, () => new HttpResponse(null, { status: 204 })),
 
+  // Attachments (Wave 3 §5.2, ADR-0018)
+  http.get(`${API}/tickets/:id/attachments`, () => ok<Attachment[]>([sampleAttachment], 200)),
+  http.post(`${API}/tickets/:id/attachments`, ({ params }) =>
+    ok<Attachment>({ ...sampleAttachment, id: 'at-new', ticketId: String(params.id) }, 201),
+  ),
+  http.get(`${API}/attachments/:id`, () =>
+    HttpResponse.arrayBuffer(new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer, {
+      status: 200,
+      headers: {
+        'Content-Type': 'image/png',
+        'Content-Disposition': 'attachment; filename="screenshot.png"',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    }),
+  ),
+  http.delete(`${API}/attachments/:id`, () => new HttpResponse(null, { status: 204 })),
+
   // Labels (Wave 2 §5.6, ADR-0016)
   http.get(`${API}/labels`, () => ok<Label[]>(sampleLabels, 200)),
   http.post(`${API}/labels`, async ({ request }) => {
@@ -409,6 +560,60 @@ export const handlers = [
     );
   }),
   http.delete(`${API}/labels/:id`, () => new HttpResponse(null, { status: 204 })),
+
+  // Webhooks (Wave 3 §5.5, ADR-0021; M(team))
+  http.get(`${API}/teams/:id/webhooks`, () => ok<WebhookSubscription[]>([sampleWebhook], 200)),
+  http.post(`${API}/teams/:id/webhooks`, async ({ request, params }) => {
+    const b = (await request.json()) as { url: string; eventTypes: string[]; active?: boolean };
+    const subscription: WebhookSubscription = {
+      ...sampleWebhook,
+      id: 'wh-new',
+      teamId: String(params.id),
+      url: b.url,
+      eventTypes: b.eventTypes,
+      active: b.active ?? true,
+    };
+    return ok<CreateWebhookResponse>({ subscription, secret: 'whsec_revealed-once-abc123' }, 201);
+  }),
+  http.put(`${API}/webhooks/:id`, async ({ request, params }) => {
+    const b = (await request.json()) as {
+      url?: string;
+      eventTypes?: string[];
+      active?: boolean;
+      rotateSecret?: boolean;
+    };
+    const subscription: WebhookSubscription = {
+      ...sampleWebhook,
+      id: String(params.id),
+      url: b.url ?? sampleWebhook.url,
+      eventTypes: b.eventTypes ?? sampleWebhook.eventTypes,
+      active: b.active ?? sampleWebhook.active,
+    };
+    return ok<UpdateWebhookResponse>(
+      { subscription, secret: b.rotateSecret ? 'whsec_rotated-xyz789' : null },
+      200,
+    );
+  }),
+  http.delete(`${API}/webhooks/:id`, () => new HttpResponse(null, { status: 204 })),
+  http.get(`${API}/webhooks/:id/deliveries`, () =>
+    ok<WebhookDeliveryList>(sampleWebhookDeliveries, 200),
+  ),
+  http.post(`${API}/webhooks/:id/ping`, () => ok({ deliveryId: 'wd-ping-1' }, 202)),
+
+  // API keys (Wave 3 §5.6, ADR-0021; Self)
+  http.get(`${API}/me/api-keys`, () => ok<ApiKey[]>([sampleApiKey], 200)),
+  http.post(`${API}/me/api-keys`, async ({ request }) => {
+    const b = (await request.json()) as { name: string; scopes: string[] };
+    const scopes = b.scopes.includes('tickets:write')
+      ? ['tickets:read', 'tickets:write']
+      : b.scopes;
+    const key: ApiKey = { ...sampleApiKey, id: 'ak-new', name: b.name, scopes };
+    return ok<CreateApiKeyResponse>({ key, secret: 'ptk_revealed-once-key-value' }, 201);
+  }),
+  http.delete(`${API}/me/api-keys/:id`, () => new HttpResponse(null, { status: 204 })),
+
+  // Analytics (Wave 3 §5.4, ADR-0020; M(team))
+  http.get(`${API}/analytics/dashboard`, () => ok<Dashboard>(sampleDashboard, 200)),
 
   // Notifications (Wave 2 §8, Self)
   http.get(`${API}/notifications/unread-count`, () =>

@@ -8,12 +8,14 @@
 
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { authApi } from '@/api/endpoints';
 import { errorMessage } from '@/lib/errors';
 
 const PASSWORD_MIN = 8;
 
 export function ResetPasswordPage() {
+  const { t } = useTranslation('auth');
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
 
@@ -27,15 +29,15 @@ export function ResetPasswordPage() {
     e.preventDefault();
     setError(null);
     if (password.length < PASSWORD_MIN) {
-      setError(`Password must be at least ${PASSWORD_MIN} characters.`);
+      setError(t('reset.passwordTooShort', { count: PASSWORD_MIN }));
       return;
     }
     if (password !== confirm) {
-      setError('The passwords do not match.');
+      setError(t('reset.passwordsDoNotMatch'));
       return;
     }
     if (!token) {
-      setError('This reset link is invalid or has expired. Request a new one.');
+      setError(t('reset.invalidLink'));
       return;
     }
     setSubmitting(true);
@@ -52,28 +54,24 @@ export function ResetPasswordPage() {
   return (
     <div className="auth-shell">
       <div className="auth-card">
-        <div className="auth-brand">Ticket Tracker</div>
-        <h1 className="auth-title">Choose a new password</h1>
+        <div className="auth-brand">{t('brand')}</div>
+        <h1 className="auth-title">{t('reset.title')}</h1>
 
         {done ? (
           <>
-            <div className="banner banner-success">
-              Your password has been reset. Please log in with your new password.
-            </div>
+            <div className="banner banner-success">{t('reset.defaultSuccess')}</div>
             <Link to="/login" className="btn btn-primary" style={{ width: '100%' }}>
-              Continue to login
+              {t('reset.continueToLogin')}
             </Link>
           </>
         ) : !token ? (
           <>
-            <div className="banner banner-error">
-              No reset token was found in this link. Request a new password reset below.
-            </div>
+            <div className="banner banner-error">{t('reset.missingBanner')}</div>
             <Link to="/forgot-password" className="btn btn-primary" style={{ width: '100%' }}>
-              Request a new link
+              {t('reset.requestNewLink')}
             </Link>
             <div className="auth-footer">
-              <Link to="/login">Back to login →</Link>
+              <Link to="/login">{t('reset.backToLogin')}</Link>
             </div>
           </>
         ) : (
@@ -81,7 +79,7 @@ export function ResetPasswordPage() {
             {error ? <div className="banner banner-error">{error}</div> : null}
             <form onSubmit={handleSubmit} noValidate>
               <div className="field">
-                <label htmlFor="reset-password">New password</label>
+                <label htmlFor="reset-password">{t('reset.newPassword')}</label>
                 <input
                   id="reset-password"
                   className="input"
@@ -93,7 +91,7 @@ export function ResetPasswordPage() {
                 />
               </div>
               <div className="field">
-                <label htmlFor="reset-confirm">Confirm new password</label>
+                <label htmlFor="reset-confirm">{t('reset.confirmPassword')}</label>
                 <input
                   id="reset-confirm"
                   className="input"
@@ -110,11 +108,11 @@ export function ResetPasswordPage() {
                 style={{ width: '100%' }}
                 disabled={submitting}
               >
-                {submitting ? 'Resetting…' : 'Reset password'}
+                {submitting ? t('reset.submitting') : t('reset.submit')}
               </button>
             </form>
             <div className="auth-footer">
-              <Link to="/forgot-password">Request a new link →</Link>
+              <Link to="/forgot-password">{t('reset.requestNewLinkArrow')}</Link>
             </div>
           </>
         )}

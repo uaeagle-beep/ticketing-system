@@ -3,11 +3,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/auth/AuthContext';
 import { displayName } from '@/lib/displayName';
 import { useUnreadCount } from '@/features/notifications/useNotifications';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 
 export function AppLayout() {
+  const { t } = useTranslation('common');
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const unreadQuery = useUnreadCount();
@@ -40,33 +43,38 @@ export function AppLayout() {
     <div className="app-shell">
       <header className="app-header">
         <NavLink to="/board" className="app-brand">
-          Ticket Tracker
+          {t('brand')}
         </NavLink>
         <nav className="app-nav">
           <NavLink to="/board" className={({ isActive }) => (isActive ? 'active' : '')}>
-            Board
+            {t('nav.board')}
           </NavLink>
           <NavLink to="/teams" className={({ isActive }) => (isActive ? 'active' : '')}>
-            Teams
+            {t('nav.teams')}
           </NavLink>
           <NavLink to="/epics" className={({ isActive }) => (isActive ? 'active' : '')}>
-            Epics
+            {t('nav.epics')}
+          </NavLink>
+          {/* Analytics is visible to any member (their teams); admin can pick any team (ADR-0020). */}
+          <NavLink to="/analytics" className={({ isActive }) => (isActive ? 'active' : '')}>
+            {t('nav.analytics')}
           </NavLink>
           {/* Users zone is admin-only (ADR-0007). Hidden for members; route also guarded. */}
           {user?.isAdmin ? (
             <NavLink to="/users" className={({ isActive }) => (isActive ? 'active' : '')}>
-              Users
+              {t('nav.users')}
             </NavLink>
           ) : null}
         </nav>
         <div className="app-header-spacer" />
+        <LanguageSwitcher />
         <button
           type="button"
           className="notif-bell"
           aria-label={
-            unread > 0 ? `Notifications (${unread} unread)` : 'Notifications'
+            unread > 0 ? t('bell.labelWithCount', { count: unread }) : t('bell.label')
           }
-          title="Notifications"
+          title={t('bell.label')}
           onClick={() => navigate('/notifications')}
         >
           <span aria-hidden>🔔</span>
@@ -103,7 +111,7 @@ export function AppLayout() {
                 }}
                 role="menuitem"
               >
-                Account
+                {t('userMenu.account')}
               </button>
               <button
                 type="button"
@@ -112,7 +120,7 @@ export function AppLayout() {
                 onClick={handleLogout}
                 role="menuitem"
               >
-                Log out
+                {t('userMenu.logOut')}
               </button>
             </div>
           ) : null}

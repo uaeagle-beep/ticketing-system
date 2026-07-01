@@ -1,0 +1,84 @@
+{
+  "loading": "Loading ticket…",
+  "backToBoard": "← Back to board",
+  "newTicket": "New ticket",
+  "delete": "Delete",
+  "cancel": "Cancel",
+  "watch": {
+    "watching": "👁 Watching",
+    "watch": "👁 Watch",
+    "stopTitle": "Stop watching this ticket",
+    "startTitle": "Watch this ticket for updates"
+  },
+  "meta": {
+    "createdBy": "Created by {{name}}",
+    "created": "Created {{date}}",
+    "modified": "Modified {{date}}"
+  },
+  "fields": {
+    "team": "Team",
+    "teamPlaceholder": "Select a team…",
+    "epic": "Epic",
+    "noEpic": "No epic",
+    "type": "Type",
+    "state": "State",
+    "priority": "Priority",
+    "dueDate": "Due date",
+    "assignees": "Assignees",
+    "labels": "Labels",
+    "labelsPlaceholder": "Select a team to choose labels.",
+    "title": "Title",
+    "body": "Body"
+  },
+  "assignees": {
+    "noEligible": "No eligible users for this team.",
+    "assignedCount": "{{count}} assigned",
+    "unassigned": "Unassigned",
+    "adminOnly": " — assignee editing requires an administrator."
+  },
+  "form": {
+    "wipBlocked": "This status already has the maximum number of tickets — finish existing ones first.",
+    "saving": "Saving…",
+    "create": "Create ticket",
+    "save": "Save",
+    "validation": {
+      "team": "Team is required.",
+      "title": "Title is required.",
+      "body": "Body is required."
+    }
+  },
+  "toast": {
+    "created": "Ticket created.",
+    "saved": "Ticket saved.",
+    "deleted": "Ticket deleted."
+  },
+  "deleteConfirm": {
+    "title": "Delete ticket?",
+    "message": "This permanently deletes the ticket and all of its comments. This cannot be undone.",
+    "confirm": "Delete"
+  },
+  "activity": {
+    "title": "Activity",
+    "loading": "Loading activity…",
+    "empty": "No activity yet.",
+    "loadingMore": "Loading…",
+    "loadMore": "Load more"
+  },
+  "attachments": {
+    "title": "Attachments",
+    "loading": "Loading attachments…",
+    "empty": "No attachments yet.",
+    "uploadAria": "Upload attachment",
+    "uploading": "Uploading…",
+    "upload": "Upload file",
+    "uploadHint": "Images, PDF, text, CSV, or Office documents up to 10 MB.",
+    "downloading": "Downloading…",
+    "download": "Download",
+    "delete": "Delete",
+    "deleteConfirm": {
+      "title": "Delete attachment?",
+      "message": "This permanently deletes \"{{filename}}\". This cannot be undone.",
+      "confirm": "Delete"
+    }
+  }
+}

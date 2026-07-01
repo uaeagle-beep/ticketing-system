@@ -3,6 +3,7 @@
 // clear error. Resetting also invalidates the user's existing sessions (server-side).
 
 import { useState } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminUsersApi } from '@/api/endpoints';
 import type { AdminUser } from '@/api/types';
@@ -17,6 +18,7 @@ interface ResetPasswordDialogProps {
 }
 
 export function ResetPasswordDialog({ user, onClose }: ResetPasswordDialogProps) {
+  const { t } = useTranslation('users');
   const queryClient = useQueryClient();
   const toast = useToast();
   const [newPassword, setNewPassword] = useState<string | null>(null);
@@ -34,33 +36,37 @@ export function ResetPasswordDialog({ user, onClose }: ResetPasswordDialogProps)
 
   return (
     <div className="modal-backdrop" onMouseDown={() => !busy && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label="Reset password" onMouseDown={(e) => e.stopPropagation()}>
-        <h3>Reset password</h3>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={t('reset.title')} onMouseDown={(e) => e.stopPropagation()}>
+        <h3>{t('reset.title')}</h3>
         <div className="modal-body">
           {newPassword ? (
             <>
               <p>
-                A new password was generated for <strong>{user.email}</strong>. Their existing
-                sessions have been signed out.
+                <Trans t={t} i18nKey="reset.generatedBody" values={{ email: user.email }}>
+                  A new password was generated for <strong>{user.email}</strong>. Their
+                  existing sessions have been signed out.
+                </Trans>
               </p>
               <GeneratedPasswordNotice password={newPassword} />
             </>
           ) : (
             <p>
-              Generate a new password for <strong>{user.email}</strong>? This signs them out of all
-              sessions. The new password is shown only once.
+              <Trans t={t} i18nKey="reset.confirmBody" values={{ email: user.email }}>
+                Generate a new password for <strong>{user.email}</strong>? This signs them
+                out of all sessions. The new password is shown only once.
+              </Trans>
             </p>
           )}
         </div>
         <div className="modal-actions">
           {newPassword ? (
             <button type="button" className="btn btn-primary" onClick={onClose}>
-              Done
+              {t('reset.done')}
             </button>
           ) : (
             <>
               <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>
-                Cancel
+                {t('reset.cancel')}
               </button>
               <button
                 type="button"
@@ -68,7 +74,7 @@ export function ResetPasswordDialog({ user, onClose }: ResetPasswordDialogProps)
                 onClick={() => resetMutation.mutate()}
                 disabled={busy}
               >
-                {busy ? 'Generating…' : 'Generate new password'}
+                {busy ? t('reset.generating') : t('reset.generate')}
               </button>
             </>
           )}

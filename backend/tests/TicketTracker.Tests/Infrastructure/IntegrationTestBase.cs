@@ -156,6 +156,20 @@ public abstract class IntegrationTestBase : IDisposable
         return await dispatcher.DrainOnceAsync(Factory.Clock.UtcNow, CancellationToken.None);
     }
 
+    /// <summary>
+    /// Drive the webhook delivery outbox drain deterministically (Wave 3, ADR-0021, §8.4): resolve the
+    /// <c>WebhookDeliveryDispatcher</c> from a scope and call <c>DrainOnceAsync(Factory.Clock.UtcNow, ...)</c>
+    /// with the fake <c>IWebhookSender</c>. Returns the number of deliveries attempted. The hosted worker is
+    /// removed so no timer competes; tests advance <c>Factory.Clock</c> to observe backoff/retry.
+    /// </summary>
+    protected async Task<int> DrainWebhookDeliveriesAsync()
+    {
+        using var scope = Factory.Services.CreateScope();
+        var dispatcher = scope.ServiceProvider
+            .GetRequiredService<TicketTracker.Application.Services.WebhookDeliveryDispatcher>();
+        return await dispatcher.DrainOnceAsync(Factory.Clock.UtcNow, CancellationToken.None);
+    }
+
     /// <summary>An HttpClient with the given bearer token attached (no auth attached on the base client).</summary>
     protected HttpClient Authed(string token)
     {

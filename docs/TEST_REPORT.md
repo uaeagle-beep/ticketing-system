@@ -1,14 +1,14 @@
 # Automated Test Report — Ticket Tracker
 
-_Updated: 2026-07-01 · Wave 2 (notifications + in-app inbox + email digest worker, activity history, watchers, labels/tags, comment edit/delete, team-members endpoint) on top of Wave 1_
+_Updated: 2026-07-01 · Wave 3 (attachments, outbound webhooks + public API keys, real-time SignalR, analytics dashboard, i18n uk/en) on top of Waves 1–2_
 
 ## 1. Regression run — summary
 
 | Suite | Type | Files | Tests | Result | Duration |
 |---|---|---|---:|---|---|
-| **Backend** (`dotnet test`) | integration (HTTP) + unit | 34 | **430** | ✅ **430 passed / 0 failed / 0 skipped** | ~60 s |
-| **Frontend** (`vitest`) | unit + component (jsdom) | 40 | **255** | ✅ **255 passed / 0 failed** | ~45 s |
-| **Total automated (unit/component/integration)** | | 74 | **685** | ✅ **all green** | |
+| **Backend** (`dotnet test`) | integration (HTTP) + unit | 47 | **588** | ✅ **588 passed / 0 failed / 0 skipped** | ~82 s |
+| **Frontend** (`vitest`) | unit + component (jsdom) | 49 | **301** | ✅ **301 passed / 0 failed** | ~45 s |
+| **Total automated (unit/component/integration)** | | 96 | **889** | ✅ **all green** | |
 | Playwright E2E — **smoke** | browser (vs live prod) | 1 spec | **6** | ✅ **6 passed** (against https://honcharenko.pp.ua) | ~17 s |
 | Playwright E2E — happy-path | browser end-to-end | 1 spec | **1** | ✅ **1 passed** on an isolated server stack (`tt-e2e` + Mailpit); CI-wired (`e2e` job) | ~10 s |
 
@@ -165,3 +165,33 @@ Key acceptance behaviours proven by executed tests:
 | `features/labels/labels*.test.tsx` | 15 | picker, manager, edit/delete, 409 toast, filter |
 | `features/tickets/CommentsPanel*.test.tsx` | 5+ | edit/delete UI, edited indicator, 400 toast |
 | `features/account/NotificationSettings.test.tsx` + `features/tickets/useWatch/useActivity` | 6+ | email toggle, watch button |
+
+## 11. Wave 3 additions (2026-07-01) — attachments / webhooks+API keys / real-time / analytics / i18n
+
+Backend **+158** (430 → **588**), frontend **+46** (255 → **301**); full regression green across two ordered migrations `AddWave3Attachments` → `AddWave3Webhooks` (parity clean). Built in 5 phases (attachments; webhooks+API keys+`users.locale`; real-time SignalR; analytics; i18n — sequenced last), then a dedicated QA pass + a defensive security review.
+
+**QA found and fixed 1 blocker:** `GET /api/webhooks/{id}/deliveries` second page returned HTTP 500 — the cursor filter used `string.Compare(...ToString()...)` which EF Core cannot translate; fixed to `Id.CompareTo(cursor)` matching the Wave-2 paginated services. Re-verified green.
+
+**Security review verdict: GO** — no confirmed exploitable vulnerability. Applied SEC-1 (fail-fast if `WEBHOOKS_ALLOW_INSECURE=true` in Production, mirroring the signing-key guard). Documented follow-up hardening (not blockers): SEC-2 webhook DNS-rebind connect-pinning, SEC-3 sniff depth, SEC-5 `SubscribeTicket` server-side team resolve, SEC-6 admin-API-key breadth (PO acknowledgement).
+
+Key behaviours proven by executed tests:
+- **Attachments**: 12-type allowlist + magic-byte sniff; spoofed content-type (exe/HTML/SVG posing as image) → `415`; 10 MB boundary (−1 ok / +1 → `413` mid-stream); download forces `Content-Disposition: attachment` + `nosniff`, never inline; opaque server-generated storage keys (never serialized); team-write delete; 404-then-403 IDOR; ticket-delete cascades attachments; `attachment_added` notifies watchers except actor + auto-watches uploader, `attachment_deleted` activity-only.
+- **Webhooks**: one delivery per active matching subscription; `DrainOnceAsync` HMAC-signs, delivers on 2xx, backoff-retries on failure/timeout, stops at max → failed, idempotent; deliveries keyset pagination (incl. page 2, post-fix); secret AES-GCM at rest, never leaked; SSRF block matrix (loopback/private/link-local/metadata/ULA) at send time, https-only, no redirects.
+- **API keys**: hashed at rest, one-time reveal, revoke; `ptk_` routed to `/api/v1` only (sessions rejected on v1, keys rejected off v1); scope gate (read/write, never admin/delete → `insufficient_scope`); live owner authz (blocked/deleted rejected every request).
+- **Real-time**: representative events push `boardChanged`/`ticketChanged` to the right groups + per-user bell ping (never actor); hub connect rejects unauth/blocked/expired; group joins server-side access-checked; `access_log off` on `/hubs/`.
+- **Analytics**: all ~9 metrics correct + team-isolated (never leaks another team); date-range; from>to → 400; unknown team → 404; non-member → 403; admin any-team; not reachable by API key.
+- **i18n**: `/me` returns `locale`; PUT profile validates `uk|en` (else 400 keyed `locale`); switching to uk renders Ukrainian; error codes localized; **en/uk bundle parity across all 16 namespaces — 596 keys, 0 stubs/0 missing** (uk-only keys are legitimate Slavic `_few`/`_many` plural forms).
+
+| New backend test area | Tests | 
+|---|---:|
+| `AttachmentsTests` + `AttachmentsAcceptanceTests` | ~44 |
+| `WebhooksTests` + `WebhooksAcceptanceTests` + `WebhookDeliveryDispatcherTests` + `Unit/WebhookUrlValidatorTests` | ~40 |
+| `ApiKeysTests` + `ApiKeysAcceptanceTests` | ~20 |
+| `RealtimeNotifierTests` + `BoardHubTests` + `RealtimeAcceptanceTests` | ~16 |
+| `AnalyticsDashboardTests` + `AnalyticsAcceptanceTests` | ~22 |
+| i18n locale (/me + profile) | ~11 |
+
+| New frontend test area | Tests |
+|---|---:|
+| i18n `config` / `LanguageSwitcher` / `translation` / `bundleParity` | ~22 |
+| attachments / api-keys / webhooks / analytics / notifications panels + charts (mocked) | ~24 |

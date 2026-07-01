@@ -12,6 +12,7 @@ import { BoardPage } from '@/features/board/BoardPage';
 import { TicketPage } from '@/features/tickets/TicketPage';
 import { TeamsPage } from '@/features/teams/TeamsPage';
 import { EpicsPage } from '@/features/epics/EpicsPage';
+import { AnalyticsPage } from '@/features/analytics/AnalyticsPage';
 import { UsersPage } from '@/features/users/UsersPage';
 import { AccountPage } from '@/features/account/AccountPage';
 import { NotificationsPage } from '@/features/notifications/NotificationsPage';
@@ -39,6 +40,7 @@ export function App() {
           <Route path="/tickets/:id" element={<TicketPage />} />
           <Route path="/teams" element={<TeamsPage />} />
           <Route path="/epics" element={<EpicsPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/account" element={<AccountPage />} />
           {/* Admin-only Users zone (ADR-0007). Backend re-checks admin on every call. */}

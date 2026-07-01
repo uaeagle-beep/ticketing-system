@@ -8,6 +8,7 @@
 // is available (a non-admin member, since there is no member-listing endpoint), only "Assigned to me"
 // is offered. `assignedToMe` wins over `assigneeId` (documented precedence, §4.2).
 
+import { useTranslation } from 'react-i18next';
 import type { AssigneeRef, BoardFilters, DueFilter, Epic, Label, TicketPriority, TicketType } from '@/api/types';
 import { dueFilterOptions, priorityOptions, typeOptions } from '@/lib/labels';
 
@@ -34,6 +35,7 @@ export function FilterBar({
   onChange,
   onClear,
 }: FilterBarProps) {
+  const { t } = useTranslation('board');
   const hasActiveFilters = Boolean(
     filters.type ||
       filters.epicId ||
@@ -59,22 +61,22 @@ export function FilterBar({
       <input
         className="input search"
         type="search"
-        placeholder="Search title…"
-        aria-label="Search by title"
+        placeholder={t('filters.searchPlaceholder')}
+        aria-label={t('filters.searchLabel')}
         value={filters.search ?? ''}
         onChange={(e) => onChange({ ...filters, search: e.target.value || undefined })}
       />
 
       <select
         className="select"
-        aria-label="Filter by type"
+        aria-label={t('filters.byType')}
         value={filters.type ?? ''}
         onChange={(e) =>
           onChange({ ...filters, type: (e.target.value || undefined) as TicketType | undefined })
         }
       >
-        <option value="">All types</option>
-        {typeOptions.map((opt) => (
+        <option value="">{t('filters.allTypes')}</option>
+        {typeOptions().map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
           </option>
@@ -83,7 +85,7 @@ export function FilterBar({
 
       <select
         className="select"
-        aria-label="Filter by priority"
+        aria-label={t('filters.byPriority')}
         value={filters.priority ?? ''}
         onChange={(e) =>
           onChange({
@@ -92,8 +94,8 @@ export function FilterBar({
           })
         }
       >
-        <option value="">All priorities</option>
-        {priorityOptions.map((opt) => (
+        <option value="">{t('filters.allPriorities')}</option>
+        {priorityOptions().map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
           </option>
@@ -102,12 +104,12 @@ export function FilterBar({
 
       <select
         className="select"
-        aria-label="Filter by epic"
+        aria-label={t('filters.byEpic')}
         value={filters.epicId ?? ''}
         onChange={(e) => onChange({ ...filters, epicId: e.target.value || undefined })}
         disabled={epicsLoading}
       >
-        <option value="">All epics</option>
+        <option value="">{t('filters.allEpics')}</option>
         {epics.map((epic) => (
           <option key={epic.id} value={epic.id}>
             {epic.title}
@@ -117,12 +119,12 @@ export function FilterBar({
 
       <select
         className="select"
-        aria-label="Filter by assignee"
+        aria-label={t('filters.byAssignee')}
         value={assigneeValue}
         onChange={(e) => onAssigneeChange(e.target.value)}
       >
-        <option value="">All assignees</option>
-        <option value="me">Assigned to me</option>
+        <option value="">{t('filters.allAssignees')}</option>
+        <option value="me">{t('filters.assignedToMe')}</option>
         {assigneeOptions.map((u) => (
           <option key={u.id} value={u.id}>
             {u.displayName}
@@ -133,11 +135,11 @@ export function FilterBar({
       {labelOptions.length > 0 ? (
         <select
           className="select"
-          aria-label="Filter by label"
+          aria-label={t('filters.byLabel')}
           value={filters.labelId ?? ''}
           onChange={(e) => onChange({ ...filters, labelId: e.target.value || undefined })}
         >
-          <option value="">All labels</option>
+          <option value="">{t('filters.allLabels')}</option>
           {labelOptions.map((label) => (
             <option key={label.id} value={label.id}>
               {label.name}
@@ -148,14 +150,14 @@ export function FilterBar({
 
       <select
         className="select"
-        aria-label="Filter by due date"
+        aria-label={t('filters.byDueDate')}
         value={filters.dueFilter ?? ''}
         onChange={(e) =>
           onChange({ ...filters, dueFilter: (e.target.value || undefined) as DueFilter | undefined })
         }
       >
-        <option value="">All due dates</option>
-        {dueFilterOptions.map((opt) => (
+        <option value="">{t('filters.allDueDates')}</option>
+        {dueFilterOptions().map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
           </option>
@@ -168,12 +170,10 @@ export function FilterBar({
         onClick={onClear}
         disabled={!hasActiveFilters}
       >
-        Clear
+        {t('filters.clear')}
       </button>
 
-      <span className="filter-count">
-        {total} {total === 1 ? 'ticket' : 'tickets'}
-      </span>
+      <span className="filter-count">{t('filters.count', { count: total })}</span>
     </div>
   );
 }

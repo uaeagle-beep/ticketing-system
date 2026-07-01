@@ -18,6 +18,23 @@ public interface ICurrentUser
     /// <summary>The authenticated user's id, or throws Unauthorized if absent.</summary>
     Guid RequireUserId();
 
+    /// <summary>
+    /// True when the request is authenticated by an API key (Wave 3, ADR-0021) rather than a session. The
+    /// principal still carries the owner's live admin flag + memberships, but the <c>/api/v1</c> scope gate
+    /// applies and <c>ptk_</c> tokens are rejected off <c>/api/v1</c> (a leaked key is never an admin credential).
+    /// </summary>
+    bool IsApiKey { get; }
+
+    /// <summary>Canonical scopes granted to an API-key request (empty for session requests); write implies read.</summary>
+    IReadOnlySet<string> Scopes { get; }
+
+    /// <summary>
+    /// Throws 403 insufficient_scope if this is an API-key request lacking <paramref name="requiredScope"/>
+    /// (Wave 3, ADR-0021). A session request (not an API key) is unaffected here — the v1 controllers are the
+    /// only callers, and a session cannot reach them via the key path. Write implies read.
+    /// </summary>
+    void RequireScope(string requiredScope);
+
     /// <summary>Throws 403 forbidden if the user is not an admin (admin-zone gate).</summary>
     void RequireAdmin();
 

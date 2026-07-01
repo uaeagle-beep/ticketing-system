@@ -1,0 +1,58 @@
+{
+  "title": "Teams",
+  "createTeam": "+ Create team",
+  "note": {
+    "admin": "Admins create, rename and delete teams and set WIP limits.",
+    "member": "You can view your teams and set their WIP limits. Only admins manage team creation."
+  },
+  "form": {
+    "namePlaceholder": "Team name"
+  },
+  "loading": "Loading teams…",
+  "empty": {
+    "title": "No teams yet",
+    "adminMessage": "Create your first team to start organizing tickets.",
+    "memberMessage": "You are not a member of any team yet. Ask an admin to add you."
+  },
+  "table": {
+    "name": "Name",
+    "tickets": "Tickets",
+    "epics": "Epics",
+    "modified": "Modified",
+    "actions": "Actions"
+  },
+  "actions": {
+    "wipLimits": "WIP limits",
+    "labels": "Labels",
+    "webhooks": "Webhooks",
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "cancel": "Cancel",
+    "create": "Create",
+    "creating": "Creating…",
+    "saving": "Saving…"
+  },
+  "deleteHint": "Cannot delete a team that still has tickets or epics. Remove them first.",
+  "confirmDelete": {
+    "title": "Delete team?",
+    "messagePrefix": "Delete team ",
+    "messageSuffix": "? This cannot be undone."
+  },
+  "toast": {
+    "created": "Team created.",
+    "renamed": "Team renamed.",
+    "wipSaved": "WIP limits saved.",
+    "deleted": "Team deleted."
+  },
+  "wip": {
+    "ariaLabel": "WIP limits for {{name}}",
+    "intro": "Cap how many tickets each column can hold. Leave a field blank for no limit.",
+    "placeholder": "No limit",
+    "unit": "tickets",
+    "blankHint": "Blank = no limit",
+    "rangeError": "Enter a whole number of 1 or more, or leave blank for no limit.",
+    "maxError": "Enter a number no greater than 999.",
+    "save": "Save limits"
+  }
+}

@@ -1,12 +1,14 @@
 // Reusable loading / empty / error state blocks (NFR-USE-1).
 
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
-export function LoadingState({ label = 'Loading…' }: { label?: string }) {
+export function LoadingState({ label }: { label?: string }) {
+  const { t } = useTranslation('common');
   return (
     <div className="center-state" role="status" aria-live="polite">
       <div className="spinner" aria-hidden />
-      <span>{label}</span>
+      <span>{label ?? t('states.loading')}</span>
     </div>
   );
 }
@@ -36,13 +38,14 @@ export function ErrorState({
   message: string;
   onRetry?: () => void;
 }) {
+  const { t } = useTranslation('common');
   return (
     <div className="center-state" role="alert">
-      <h3>Something went wrong</h3>
+      <h3>{t('states.errorTitle')}</h3>
       <p className="muted">{message}</p>
       {onRetry ? (
         <button type="button" className="btn btn-secondary" onClick={onRetry}>
-          Try again
+          {t('states.tryAgain')}
         </button>
       ) : null}
     </div>

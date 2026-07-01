@@ -1,0 +1,25 @@
+{
+  "state": {
+    "new": "Нові",
+    "ready_for_implementation": "Готові до реалізації",
+    "in_progress": "У роботі",
+    "ready_for_acceptance": "Готові до приймання",
+    "done": "Виконано"
+  },
+  "type": {
+    "bug": "Дефект",
+    "feature": "Функція",
+    "fix": "Виправлення"
+  },
+  "priority": {
+    "low": "Низький",
+    "medium": "Середній",
+    "high": "Високий",
+    "urgent": "Терміновий"
+  },
+  "dueFilter": {
+    "overdue": "Прострочені",
+    "has_due_date": "Зі строком",
+    "no_due_date": "Без строку"
+  }
+}

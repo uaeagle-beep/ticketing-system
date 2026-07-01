@@ -70,6 +70,10 @@ public static class EventSummaries
     public static string CommentEdited(string actor) => $"{actor} edited a comment";
     public static string CommentDeleted(string actor) => $"{actor} deleted a comment";
 
+    // Wave 3 attachments (ADR-0018, §6.1).
+    public static string AttachmentAdded(string actor, string filename) => $"{actor} attached {filename}";
+    public static string AttachmentDeleted(string actor, string filename) => $"{actor} removed attachment {filename}";
+
     /// <summary>"{actor} changed {field} from {from} to {to}" with human display values.</summary>
     public static string FieldChanged(string actor, string field, string? fromDisplay, string? toDisplay)
     {

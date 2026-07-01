@@ -10,6 +10,8 @@
 //  - Three distinct empty states (EC9): no teams; team with no tickets; filtered-to-empty.
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   DndContext,
@@ -27,6 +29,7 @@ import type { BoardFilters, TicketCard as TicketCardModel, TicketState } from '@
 import { TICKET_STATES } from '@/api/types';
 import { stateLabel } from '@/lib/labels';
 import { useTeams } from '@/features/teams/useTeams';
+import { useRealtime } from '@/features/realtime/RealtimeProvider';
 import { useEpics } from '@/features/epics/useEpics';
 import { useTeamMembers } from '@/features/tickets/useTeamMembers';
 import { useLabels } from '@/features/labels/useLabels';
@@ -65,17 +68,18 @@ function writeLastTeamId(teamId: string): void {
 // screen-reader announcements. `over.id` is a column state for an empty column,
 // or a card id when hovering a populated column — in the latter case the column
 // state rides along in `over.data.current.state`.
-function columnLabel(id: string | undefined, fallbackState?: TicketState): string {
+function columnLabel(
+  t: TFunction<'board'>,
+  id: string | undefined,
+  fallbackState?: TicketState,
+): string {
   if (id && isTicketState(id)) return stateLabel(id);
   if (fallbackState) return stateLabel(fallbackState);
-  return 'unknown column';
+  return t('a11y.unknownColumn');
 }
 
-const screenReaderInstructions: ScreenReaderInstructions = {
-  draggable: `To move a ticket between columns with the keyboard: focus its "Move ticket" handle and press Space or Enter to pick it up. Use the Left and Right arrow keys to choose a column, then press Space or Enter again to drop it. Press Escape to cancel. Click a card (or press Enter on it) to open the ticket.`,
-};
-
 export function BoardPage() {
+  const { t } = useTranslation('board');
   const navigate = useNavigate();
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -98,6 +102,14 @@ export function BoardPage() {
   useEffect(() => {
     if (selectedTeamId) writeLastTeamId(selectedTeamId);
   }, [selectedTeamId]);
+
+  // Real-time (Wave 3, ADR-0019): explicitly join the open board's team group so a `boardChanged` push
+  // refetches the board live. Members are auto-joined to their team groups on connect; this covers admins
+  // (whose membership list is empty) and re-asserts the join after a reconnect. Server re-checks access.
+  const { subscribeTeam } = useRealtime();
+  useEffect(() => {
+    if (selectedTeamId) subscribeTeam(selectedTeamId);
+  }, [selectedTeamId, subscribeTeam]);
 
   const [filters, setFilters] = useState<BoardFilters>({});
 
@@ -188,35 +200,40 @@ export function BoardPage() {
   // pipes these into its built-in aria-live region. `active.data.current.state`
   // and `over.data.current.state` carry the source/target column state.
   const ticketName = (id: string | undefined) =>
-    board?.columns.flatMap((c) => c.tickets).find((t) => t.id === id)?.title ?? 'ticket';
+    board?.columns.flatMap((c) => c.tickets).find((t) => t.id === id)?.title ??
+    t('a11y.ticketFallback');
+
+  const screenReaderInstructions: ScreenReaderInstructions = {
+    draggable: t('a11y.instructions'),
+  };
 
   const announcements: Announcements = {
     onDragStart: ({ active }) => {
       const from = active.data.current?.state as TicketState | undefined;
-      return `Picked up ticket "${ticketName(String(active.id))}" from the ${columnLabel(
-        undefined,
-        from,
-      )} column. Use the left and right arrow keys to choose a column, then press Space or Enter to drop.`;
+      return t('a11y.pickedUp', {
+        name: ticketName(String(active.id)),
+        column: columnLabel(t, undefined, from),
+      });
     },
     onDragOver: ({ active, over }) => {
       if (!over) return undefined;
-      const to = columnLabel(String(over.id), over.data.current?.state as TicketState | undefined);
-      return `Ticket "${ticketName(String(active.id))}" is over the ${to} column.`;
+      const to = columnLabel(t, String(over.id), over.data.current?.state as TicketState | undefined);
+      return t('a11y.over', { name: ticketName(String(active.id)), column: to });
     },
     onDragEnd: ({ active, over }) => {
       const name = ticketName(String(active.id));
-      if (!over) return `Ticket "${name}" was dropped. It stayed in its original column.`;
-      const to = columnLabel(String(over.id), over.data.current?.state as TicketState | undefined);
-      return `Ticket "${name}" was dropped into the ${to} column.`;
+      if (!over) return t('a11y.droppedStayed', { name });
+      const to = columnLabel(t, String(over.id), over.data.current?.state as TicketState | undefined);
+      return t('a11y.droppedInto', { name, column: to });
     },
     onDragCancel: ({ active }) =>
-      `Move cancelled. Ticket "${ticketName(String(active.id))}" stayed in its original column.`,
+      t('a11y.cancelled', { name: ticketName(String(active.id)) }),
   };
 
   // ---- Render branches ----
 
   if (teamsQuery.isLoading) {
-    return <LoadingState label="Loading teams…" />;
+    return <LoadingState label={t('loading.teams')} />;
   }
 
   if (teamsQuery.isError) {
@@ -229,11 +246,11 @@ export function BoardPage() {
   if (teams.length === 0) {
     return (
       <EmptyState
-        title="No teams yet"
-        message="Create your first team to start tracking tickets."
+        title={t('empty.noTeams.title')}
+        message={t('empty.noTeams.message')}
         action={
           <button type="button" className="btn btn-primary" onClick={() => navigate('/teams')}>
-            Go to Team management
+            {t('empty.noTeams.action')}
           </button>
         }
       />
@@ -246,7 +263,7 @@ export function BoardPage() {
         <div className="field" style={{ margin: 0 }}>
           <select
             className="select"
-            aria-label="Select team"
+            aria-label={t('toolbar.selectTeam')}
             value={selectedTeamId ?? ''}
             onChange={(e) => handleTeamChange(e.target.value)}
           >
@@ -265,7 +282,7 @@ export function BoardPage() {
             navigate(selectedTeamId ? `/tickets/new?team=${selectedTeamId}` : '/tickets/new')
           }
         >
-          + New ticket
+          {t('toolbar.newTicket')}
         </button>
       </div>
 
@@ -283,25 +300,25 @@ export function BoardPage() {
       {boardQuery.isError ? (
         <ErrorState message={errorMessage(boardQuery.error)} onRetry={() => boardQuery.refetch()} />
       ) : boardQuery.isLoading && !board ? (
-        <LoadingState label="Loading board…" />
+        <LoadingState label={t('loading.board')} />
       ) : board ? (
         <>
           {/* EC9 (c): filtered-to-empty — distinct from a team with no tickets. */}
           {hasActiveFilters && board.total === 0 ? (
             <EmptyState
-              title="No matching tickets"
-              message="No tickets match the current filters."
+              title={t('empty.filtered.title')}
+              message={t('empty.filtered.message')}
               action={
                 <button type="button" className="btn btn-secondary" onClick={() => setFilters({})}>
-                  Clear filters
+                  {t('empty.filtered.action')}
                 </button>
               }
             />
           ) : /* EC9 (b): team selected, no tickets at all. */ !hasActiveFilters &&
             board.total === 0 ? (
             <EmptyState
-              title="No tickets on this board"
-              message="Create a ticket to get started."
+              title={t('empty.noTickets.title')}
+              message={t('empty.noTickets.message')}
               action={
                 <button
                   type="button"
@@ -312,7 +329,7 @@ export function BoardPage() {
                     )
                   }
                 >
-                  + New ticket
+                  {t('empty.noTickets.action')}
                 </button>
               }
             />

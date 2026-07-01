@@ -9,6 +9,7 @@
 // raise no board-affecting change in Phase 1).
 
 import { useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { commentsApi } from '@/api/endpoints';
 import type { Comment } from '@/api/types';
@@ -23,6 +24,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useToast } from '@/components/toast/ToastContext';
 
 export function CommentsPanel({ ticketId }: { ticketId: string }) {
+  const { t } = useTranslation('comments');
   const queryClient = useQueryClient();
   const toast = useToast();
   const { user } = useAuth();
@@ -55,16 +57,16 @@ export function CommentsPanel({ ticketId }: { ticketId: string }) {
   return (
     <div className="panel">
       <div className="row" style={{ marginBottom: 12 }}>
-        <h3 style={{ fontSize: 16 }}>Comments</h3>
+        <h3 style={{ fontSize: 16 }}>{t('title')}</h3>
         <CountBadge count={comments.length} />
       </div>
 
       {commentsQuery.isLoading ? (
-        <LoadingState label="Loading comments…" />
+        <LoadingState label={t('loading')} />
       ) : commentsQuery.isError ? (
         <div className="banner banner-error">{errorMessage(commentsQuery.error)}</div>
       ) : comments.length === 0 ? (
-        <p className="muted">No comments yet. Be the first to add one.</p>
+        <p className="muted">{t('empty')}</p>
       ) : (
         <div className="comment-list">
           {comments.map((c) => (
@@ -81,13 +83,13 @@ export function CommentsPanel({ ticketId }: { ticketId: string }) {
 
       <form onSubmit={handleSubmit} style={{ marginTop: 12 }}>
         <div className="field" style={{ marginBottom: 8 }}>
-          <label htmlFor="new-comment">Add comment</label>
+          <label htmlFor="new-comment">{t('add.label')}</label>
           <textarea
             id="new-comment"
             className="textarea"
             value={body}
             onChange={(e) => setBody(e.target.value)}
-            placeholder="Write a comment…"
+            placeholder={t('add.placeholder')}
             disabled={addMutation.isPending}
           />
         </div>
@@ -96,7 +98,7 @@ export function CommentsPanel({ ticketId }: { ticketId: string }) {
           className="btn btn-primary"
           disabled={addMutation.isPending || !body.trim()}
         >
-          {addMutation.isPending ? 'Posting…' : 'Post comment'}
+          {addMutation.isPending ? t('add.posting') : t('add.post')}
         </button>
       </form>
     </div>
@@ -114,6 +116,7 @@ function CommentItem({
   canDelete: boolean;
   ticketId: string;
 }) {
+  const { t } = useTranslation('comments');
   const queryClient = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState(false);
@@ -163,9 +166,9 @@ function CommentItem({
         <span className="comment-time">
           {formatUtc(comment.createdAt)}
           {comment.edited && comment.editedAt ? (
-            <span className="comment-edited" title={`Edited ${formatUtc(comment.editedAt)}`}>
+            <span className="comment-edited" title={t('editedTitle', { date: formatUtc(comment.editedAt) })}>
               {' '}
-              (edited)
+              {t('edited')}
             </span>
           ) : null}
         </span>
@@ -175,7 +178,7 @@ function CommentItem({
         <div className="comment-edit">
           <textarea
             className="textarea"
-            aria-label="Edit comment"
+            aria-label={t('edit.label')}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             disabled={editMutation.isPending}
@@ -187,7 +190,7 @@ function CommentItem({
               onClick={saveEdit}
               disabled={editMutation.isPending || !draft.trim()}
             >
-              {editMutation.isPending ? 'Saving…' : 'Save'}
+              {editMutation.isPending ? t('edit.saving') : t('edit.save')}
             </button>
             <button
               type="button"
@@ -195,7 +198,7 @@ function CommentItem({
               onClick={() => setEditing(false)}
               disabled={editMutation.isPending}
             >
-              Cancel
+              {t('edit.cancel')}
             </button>
           </div>
         </div>
@@ -206,7 +209,7 @@ function CommentItem({
             <div className="comment-actions row" style={{ gap: 8, marginTop: 6 }}>
               {canEdit ? (
                 <button type="button" className="btn btn-secondary btn-sm" onClick={startEdit}>
-                  Edit
+                  {t('actions.edit')}
                 </button>
               ) : null}
               {canDelete ? (
@@ -216,7 +219,7 @@ function CommentItem({
                   onClick={() => setConfirmOpen(true)}
                   disabled={deleteMutation.isPending}
                 >
-                  Delete
+                  {t('actions.delete')}
                 </button>
               ) : null}
             </div>
@@ -226,9 +229,9 @@ function CommentItem({
 
       <ConfirmDialog
         open={confirmOpen}
-        title="Delete comment?"
-        message="This permanently deletes the comment. This cannot be undone."
-        confirmLabel="Delete"
+        title={t('deleteConfirm.title')}
+        message={t('deleteConfirm.message')}
+        confirmLabel={t('deleteConfirm.confirm')}
         danger
         busy={deleteMutation.isPending}
         onConfirm={() => deleteMutation.mutate()}

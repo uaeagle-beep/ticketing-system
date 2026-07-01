@@ -3,6 +3,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { authApi } from '@/api/endpoints';
 import { ApiError } from '@/api/client';
 import { errorMessage } from '@/lib/errors';
@@ -14,6 +15,7 @@ interface LocationState {
 }
 
 export function LoginPage() {
+  const { t } = useTranslation('auth');
   const { signIn } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -32,7 +34,7 @@ export function LoginPage() {
     setShowResend(false);
 
     if (!email.trim() || !password) {
-      setError('Please enter your email and password.');
+      setError(t('login.emptyFields'));
       return;
     }
 
@@ -55,14 +57,14 @@ export function LoginPage() {
   return (
     <div className="auth-shell">
       <div className="auth-card">
-        <div className="auth-brand">Ticket Tracker</div>
-        <h1 className="auth-title">Log in</h1>
+        <div className="auth-brand">{t('brand')}</div>
+        <h1 className="auth-title">{t('login.title')}</h1>
 
         {error ? <div className="banner banner-error">{error}</div> : null}
 
         <form onSubmit={handleSubmit} noValidate>
           <div className="field">
-            <label htmlFor="login-email">Email</label>
+            <label htmlFor="login-email">{t('email')}</label>
             <input
               id="login-email"
               className="input"
@@ -74,7 +76,7 @@ export function LoginPage() {
             />
           </div>
           <div className="field">
-            <label htmlFor="login-password">Password</label>
+            <label htmlFor="login-password">{t('password')}</label>
             <input
               id="login-password"
               className="input"
@@ -91,15 +93,13 @@ export function LoginPage() {
             style={{ width: '100%' }}
             disabled={submitting}
           >
-            {submitting ? 'Logging in…' : 'Log in'}
+            {submitting ? t('login.submitting') : t('login.submit')}
           </button>
         </form>
 
         {showResend ? (
           <div style={{ marginTop: 18 }}>
-            <div className="banner banner-info">
-              Your account is not verified. Request a new verification email below.
-            </div>
+            <div className="banner banner-info">{t('login.unverifiedBanner')}</div>
             <ResendVerificationForm initialEmail={email.trim()} />
           </div>
         ) : null}
@@ -111,14 +111,14 @@ export function LoginPage() {
               className="btn-link"
               onClick={() => setShowResend(true)}
             >
-              Account not verified? Resend email
+              {t('login.resendLink')}
             </button>
           ) : null}
           <div>
-            <Link to="/forgot-password">Forgot password?</Link>
+            <Link to="/forgot-password">{t('login.forgotPassword')}</Link>
           </div>
           <div>
-            <Link to="/signup">Create an account →</Link>
+            <Link to="/signup">{t('login.createAccount')}</Link>
           </div>
         </div>
       </div>

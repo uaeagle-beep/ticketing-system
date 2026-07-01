@@ -18,8 +18,12 @@ public sealed record ForgotPasswordRequest(string? Email);
 /// <summary>POST /api/auth/reset-password (F-01, public). Consumes a token + sets a new password.</summary>
 public sealed record ResetPasswordRequest(string? Token, string? Password);
 
-/// <summary>PUT /api/me/profile (F-04, self). Set or clear the display name (null/blank ⇒ clear).</summary>
-public sealed record UpdateProfileRequest(string? Name);
+/// <summary>
+/// PUT /api/me/profile (F-04, self). Set or clear the display name (null/blank ⇒ clear).
+/// Wave 3 i18n (§5.7, ADR-0022): also carries an optional preferred UI/email <c>Locale</c>
+/// (<c>uk|en</c>, or null to clear ⇒ client detection / the <c>uk</c> default).
+/// </summary>
+public sealed record UpdateProfileRequest(string? Name, string? Locale = null);
 
 /// <summary>POST /api/me/password (F-04, self). Current-password re-auth + new password.</summary>
 public sealed record ChangePasswordRequest(string? CurrentPassword, string? NewPassword);
@@ -36,9 +40,11 @@ public sealed record TeamRefDto(Guid Id, string Name);
 /// authorization context (<c>IsAdmin</c>, <c>IsBlocked</c>, <c>Teams</c>) that drives the SPA's
 /// nav/team-selector and the "load last/first team" client logic (ADR-0007, §4.9). <c>Name</c> is
 /// the optional display name (null ⇒ the SPA shows <c>Email</c>); email stays the login/account key.
+/// <c>Locale</c> (Wave 3 i18n, §5.7/ADR-0022) is the persisted preferred language (<c>uk|en</c>, or
+/// null ⇒ unset) the SPA reads on bootstrap to set the active language across devices.
 /// </summary>
 public sealed record UserDto(
     Guid Id, string Email, string? Name, bool EmailVerified, bool IsAdmin, bool IsBlocked,
-    IReadOnlyList<TeamRefDto> Teams);
+    IReadOnlyList<TeamRefDto> Teams, string? Locale);
 
 public sealed record LoginResponse(string Token, UserDto User, DateTime ExpiresAt);

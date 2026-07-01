@@ -5,6 +5,7 @@
 // confirmed to avoid an accidental removal. Errors surface as toasts (409 duplicate_label_name mapped).
 
 import { useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Label } from '@/api/types';
 import { useLabels, useLabelMutations } from './useLabels';
 import { LabelChip } from '@/components/Badges';
@@ -23,6 +24,7 @@ const PALETTE = [
 ];
 
 export function LabelsManager({ teamId }: { teamId: string }) {
+  const { t } = useTranslation('labels');
   const toast = useToast();
   const labelsQuery = useLabels(teamId);
   const { create, update, remove } = useLabelMutations(teamId);
@@ -41,7 +43,7 @@ export function LabelsManager({ teamId }: { teamId: string }) {
       { teamId, name: newName.trim(), color: newColor },
       {
         onSuccess: () => {
-          toast.showSuccess('Label created.');
+          toast.showSuccess(t('toast.created'));
           setNewName('');
           setNewColor(DEFAULT_COLOR);
         },
@@ -63,7 +65,7 @@ export function LabelsManager({ teamId }: { teamId: string }) {
       { id: editingId, body: { name: editName.trim(), color: editColor } },
       {
         onSuccess: () => {
-          toast.showSuccess('Label saved.');
+          toast.showSuccess(t('toast.saved'));
           setEditingId(null);
         },
         onError: (err) => toast.showError(errorMessage(err)),
@@ -75,7 +77,7 @@ export function LabelsManager({ teamId }: { teamId: string }) {
     if (!deleteTarget) return;
     remove.mutate(deleteTarget.id, {
       onSuccess: () => {
-        toast.showSuccess('Label deleted.');
+        toast.showSuccess(t('toast.deleted'));
         setDeleteTarget(null);
       },
       onError: (err) => {
@@ -89,38 +91,38 @@ export function LabelsManager({ teamId }: { teamId: string }) {
 
   return (
     <div className="labels-manager">
-      <form className="inline-form" onSubmit={submitCreate} aria-label="Create label">
+      <form className="inline-form" onSubmit={submitCreate} aria-label={t('createFormLabel')}>
         <div className="grow">
           <input
             className="input"
-            placeholder="Label name"
+            placeholder={t('namePlaceholder')}
             value={newName}
             maxLength={50}
             onChange={(e) => setNewName(e.target.value)}
             disabled={create.isPending}
-            aria-label="New label name"
+            aria-label={t('newNameLabel')}
           />
         </div>
-        <ColorSelect value={newColor} onChange={setNewColor} disabled={create.isPending} ariaLabel="New label color" />
+        <ColorSelect value={newColor} onChange={setNewColor} disabled={create.isPending} ariaLabel={t('newColorLabel')} />
         <button type="submit" className="btn btn-primary btn-sm" disabled={create.isPending || !newName.trim()}>
-          {create.isPending ? 'Adding…' : 'Add label'}
+          {create.isPending ? t('adding') : t('addLabel')}
         </button>
       </form>
 
       {labelsQuery.isLoading ? (
-        <LoadingState label="Loading labels…" />
+        <LoadingState label={t('loading')} />
       ) : labelsQuery.isError ? (
         <ErrorState message={errorMessage(labelsQuery.error)} onRetry={() => labelsQuery.refetch()} />
       ) : labels.length === 0 ? (
         <p className="muted" style={{ marginTop: 8 }}>
-          No labels yet. Add one above.
+          {t('emptyHint')}
         </p>
       ) : (
         <ul className="labels-list">
           {labels.map((label) =>
             editingId === label.id ? (
               <li key={label.id}>
-                <form className="inline-form" onSubmit={submitEdit} aria-label={`Edit label ${label.name}`}>
+                <form className="inline-form" onSubmit={submitEdit} aria-label={t('editFormLabel', { name: label.name })}>
                   <div className="grow">
                     <input
                       className="input"
@@ -129,12 +131,12 @@ export function LabelsManager({ teamId }: { teamId: string }) {
                       autoFocus
                       onChange={(e) => setEditName(e.target.value)}
                       disabled={update.isPending}
-                      aria-label="Label name"
+                      aria-label={t('nameLabel')}
                     />
                   </div>
-                  <ColorSelect value={editColor} onChange={setEditColor} disabled={update.isPending} ariaLabel="Label color" />
+                  <ColorSelect value={editColor} onChange={setEditColor} disabled={update.isPending} ariaLabel={t('colorLabel')} />
                   <button type="submit" className="btn btn-primary btn-sm" disabled={update.isPending || !editName.trim()}>
-                    Save
+                    {t('actions.save')}
                   </button>
                   <button
                     type="button"
@@ -142,7 +144,7 @@ export function LabelsManager({ teamId }: { teamId: string }) {
                     onClick={() => setEditingId(null)}
                     disabled={update.isPending}
                   >
-                    Cancel
+                    {t('actions.cancel')}
                   </button>
                 </form>
               </li>
@@ -151,10 +153,10 @@ export function LabelsManager({ teamId }: { teamId: string }) {
                 <LabelChip label={label} />
                 <div className="spacer" />
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => startEdit(label)}>
-                  Edit
+                  {t('actions.edit')}
                 </button>
                 <button type="button" className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(label)}>
-                  Delete
+                  {t('actions.delete')}
                 </button>
               </li>
             ),
@@ -164,14 +166,15 @@ export function LabelsManager({ teamId }: { teamId: string }) {
 
       <ConfirmDialog
         open={deleteTarget !== null}
-        title="Delete label?"
+        title={t('confirmDelete.title')}
         message={
           <>
-            Delete label <strong>{deleteTarget?.name}</strong>? It will be removed from all tickets. This
-            cannot be undone.
+            {t('confirmDelete.messagePrefix')}
+            <strong>{deleteTarget?.name}</strong>
+            {t('confirmDelete.messageSuffix')}
           </>
         }
-        confirmLabel="Delete"
+        confirmLabel={t('actions.delete')}
         danger
         busy={remove.isPending}
         onConfirm={confirmDelete}
@@ -194,17 +197,18 @@ function ColorSelect({
   disabled?: boolean;
   ariaLabel: string;
 }) {
+  const { t } = useTranslation('labels');
   const inPalette = PALETTE.includes(value.toLowerCase());
   return (
     <div className="color-select">
       <select
         className="select"
-        aria-label={`${ariaLabel} palette`}
+        aria-label={t('paletteLabel', { label: ariaLabel })}
         value={inPalette ? value.toLowerCase() : ''}
         onChange={(e) => e.target.value && onChange(e.target.value)}
         disabled={disabled}
       >
-        {!inPalette ? <option value="">Custom</option> : null}
+        {!inPalette ? <option value="">{t('custom')}</option> : null}
         {PALETTE.map((c) => (
           <option key={c} value={c}>
             {c}

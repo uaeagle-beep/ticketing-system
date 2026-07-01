@@ -1,0 +1,66 @@
+{
+  "toolbar": {
+    "selectTeam": "Select team",
+    "newTicket": "+ New ticket"
+  },
+  "loading": {
+    "teams": "Loading teams…",
+    "board": "Loading board…"
+  },
+  "empty": {
+    "noTeams": {
+      "title": "No teams yet",
+      "message": "Create your first team to start tracking tickets.",
+      "action": "Go to Team management"
+    },
+    "filtered": {
+      "title": "No matching tickets",
+      "message": "No tickets match the current filters.",
+      "action": "Clear filters"
+    },
+    "noTickets": {
+      "title": "No tickets on this board",
+      "message": "Create a ticket to get started.",
+      "action": "+ New ticket"
+    }
+  },
+  "column": {
+    "empty": "No tickets"
+  },
+  "card": {
+    "open": "Open ticket: {{title}}",
+    "move": "Move ticket: {{title}} (currently {{state}})",
+    "moveTitle": "Move ticket",
+    "noEpic": "No epic"
+  },
+  "filters": {
+    "searchPlaceholder": "Search title…",
+    "searchLabel": "Search by title",
+    "byType": "Filter by type",
+    "allTypes": "All types",
+    "byPriority": "Filter by priority",
+    "allPriorities": "All priorities",
+    "byEpic": "Filter by epic",
+    "allEpics": "All epics",
+    "byAssignee": "Filter by assignee",
+    "allAssignees": "All assignees",
+    "assignedToMe": "Assigned to me",
+    "byLabel": "Filter by label",
+    "allLabels": "All labels",
+    "byDueDate": "Filter by due date",
+    "allDueDates": "All due dates",
+    "clear": "Clear",
+    "count_one": "{{count}} ticket",
+    "count_other": "{{count}} tickets"
+  },
+  "a11y": {
+    "instructions": "To move a ticket between columns with the keyboard: focus its \"Move ticket\" handle and press Space or Enter to pick it up. Use the Left and Right arrow keys to choose a column, then press Space or Enter again to drop it. Press Escape to cancel. Click a card (or press Enter on it) to open the ticket.",
+    "unknownColumn": "unknown column",
+    "ticketFallback": "ticket",
+    "pickedUp": "Picked up ticket \"{{name}}\" from the {{column}} column. Use the left and right arrow keys to choose a column, then press Space or Enter to drop.",
+    "over": "Ticket \"{{name}}\" is over the {{column}} column.",
+    "droppedInto": "Ticket \"{{name}}\" was dropped into the {{column}} column.",
+    "droppedStayed": "Ticket \"{{name}}\" was dropped. It stayed in its original column.",
+    "cancelled": "Move cancelled. Ticket \"{{name}}\" stayed in its original column."
+  }
+}

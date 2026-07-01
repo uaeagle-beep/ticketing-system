@@ -1,0 +1,13 @@
+{
+  "title": "Notifications",
+  "markAllRead": "Mark all read",
+  "loading": "Loading notifications…",
+  "empty": {
+    "title": "You're all caught up",
+    "message": "You have no notifications yet."
+  },
+  "listLabel": "Notifications",
+  "unread": "Unread",
+  "loadingMore": "Loading…",
+  "loadMore": "Load more"
+}

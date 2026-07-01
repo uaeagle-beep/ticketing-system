@@ -3,6 +3,7 @@
 // status and timestamps, and offers create / edit / reset-password / block-unblock actions.
 
 import { useMemo, useState } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminUsersApi } from '@/api/endpoints';
 import type { AdminUser } from '@/api/types';
@@ -21,13 +22,20 @@ import { UsersFilterBar, EMPTY_USERS_FILTERS, type UsersFilters } from './UsersF
 import { filterUsers } from './usersFilter';
 
 function StatusBadge({ status }: { status: AdminUser['status'] }) {
+  const { t } = useTranslation('users');
   const cls =
     status === 'blocked' ? 'badge type-bug' : status === 'unverified' ? 'badge type-feature' : 'badge type-fix';
-  const label = status === 'blocked' ? 'Blocked' : status === 'unverified' ? 'Unverified' : 'Active';
+  const label =
+    status === 'blocked'
+      ? t('status.blocked')
+      : status === 'unverified'
+        ? t('status.unverified')
+        : t('status.active');
   return <span className={cls}>{label}</span>;
 }
 
 export function UsersPage() {
+  const { t } = useTranslation('users');
   const queryClient = useQueryClient();
   const toast = useToast();
   const usersQuery = useUsers();
@@ -50,7 +58,7 @@ export function UsersPage() {
     mutationFn: (user: AdminUser) =>
       user.isBlocked ? adminUsersApi.unblock(user.id) : adminUsersApi.block(user.id),
     onSuccess: (_result, user) => {
-      toast.showSuccess(user.isBlocked ? 'User unblocked.' : 'User blocked.');
+      toast.showSuccess(user.isBlocked ? t('toast.userUnblocked') : t('toast.userBlocked'));
       setBlockTarget(null);
       invalidate();
     },
@@ -63,22 +71,20 @@ export function UsersPage() {
   return (
     <div className="page-container">
       <div className="page-header">
-        <h1>Users</h1>
+        <h1>{t('page.title')}</h1>
         <div className="spacer" />
         <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-          + Create user
+          {t('page.createUser')}
         </button>
       </div>
-      <p className="page-note">
-        Admins manage all accounts here. Members only see and act within their assigned teams.
-      </p>
+      <p className="page-note">{t('page.note')}</p>
 
       {usersQuery.isLoading ? (
-        <LoadingState label="Loading users…" />
+        <LoadingState label={t('page.loading')} />
       ) : usersQuery.isError ? (
         <ErrorState message={errorMessage(usersQuery.error)} onRetry={() => usersQuery.refetch()} />
       ) : users.length === 0 ? (
-        <EmptyState title="No users" message="Create the first user to get started." />
+        <EmptyState title={t('page.empty.title')} message={t('page.empty.message')} />
       ) : (
         <>
           <UsersFilterBar
@@ -91,20 +97,20 @@ export function UsersPage() {
 
           {filteredUsers.length === 0 ? (
             <EmptyState
-              title="No matching users"
-              message="No users match the current filters. Try clearing them."
+              title={t('page.noMatches.title')}
+              message={t('page.noMatches.message')}
             />
           ) : (
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>User</th>
-                  <th>Role</th>
-                  <th>Teams</th>
-                  <th>Verified</th>
-                  <th>Status</th>
-                  <th>Created</th>
-                  <th className="text-right">Actions</th>
+                  <th>{t('table.user')}</th>
+                  <th>{t('table.role')}</th>
+                  <th>{t('table.teams')}</th>
+                  <th>{t('table.verified')}</th>
+                  <th>{t('table.status')}</th>
+                  <th>{t('table.created')}</th>
+                  <th className="text-right">{t('table.actions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -116,12 +122,12 @@ export function UsersPage() {
                         {user.name ? <span className="user-cell-email muted">{user.email}</span> : null}
                       </div>
                     </td>
-                    <td>{user.isAdmin ? 'Admin' : 'Member'}</td>
+                    <td>{user.isAdmin ? t('role.admin') : t('role.member')}</td>
                 <td>
                   {user.isAdmin ? (
-                    <span className="muted">All teams</span>
+                    <span className="muted">{t('table.allTeams')}</span>
                   ) : user.teams.length === 0 ? (
-                    <span className="muted">—</span>
+                    <span className="muted">{t('table.noTeams')}</span>
                   ) : (
                     <div className="chip-list">
                       {user.teams.map((team) => (
@@ -132,7 +138,7 @@ export function UsersPage() {
                     </div>
                   )}
                 </td>
-                <td>{user.emailVerified ? 'Yes' : 'No'}</td>
+                <td>{user.emailVerified ? t('table.yes') : t('table.no')}</td>
                 <td>
                   <StatusBadge status={user.status} />
                 </td>
@@ -144,23 +150,23 @@ export function UsersPage() {
                       className="btn btn-secondary btn-sm"
                       onClick={() => setEditTarget(user)}
                     >
-                      Edit
+                      {t('actions.edit')}
                     </button>
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
                       disabled={user.isBlocked}
-                      title={user.isBlocked ? 'Unblock the account before resetting its password.' : undefined}
+                      title={user.isBlocked ? t('resetPasswordDisabledTitle') : undefined}
                       onClick={() => setResetTarget(user)}
                     >
-                      Reset password
+                      {t('actions.resetPassword')}
                     </button>
                     <button
                       type="button"
                       className={`btn btn-sm ${user.isBlocked ? 'btn-secondary' : 'btn-danger'}`}
                       onClick={() => setBlockTarget(user)}
                     >
-                      {user.isBlocked ? 'Unblock' : 'Block'}
+                      {user.isBlocked ? t('actions.unblock') : t('actions.block')}
                     </button>
                   </div>
                 </td>
@@ -182,20 +188,21 @@ export function UsersPage() {
 
       <ConfirmDialog
         open={blockTarget !== null}
-        title={blockTarget?.isBlocked ? 'Unblock user?' : 'Block user?'}
+        title={blockTarget?.isBlocked ? t('confirm.unblockTitle') : t('confirm.blockTitle')}
         message={
           blockTarget?.isBlocked ? (
-            <>
-              Unblock <strong>{blockTarget?.email}</strong>? They will be able to log in again.
-            </>
+            <Trans t={t} i18nKey="confirm.unblockMessage" values={{ email: blockTarget?.email }}>
+              Unblock <strong>{blockTarget?.email}</strong>? They will be able to log in
+              again.
+            </Trans>
           ) : (
-            <>
-              Block <strong>{blockTarget?.email}</strong>? They will be signed out and unable to log
-              in until unblocked.
-            </>
+            <Trans t={t} i18nKey="confirm.blockMessage" values={{ email: blockTarget?.email }}>
+              Block <strong>{blockTarget?.email}</strong>? They will be signed out and
+              unable to log in until unblocked.
+            </Trans>
           )
         }
-        confirmLabel={blockTarget?.isBlocked ? 'Unblock' : 'Block'}
+        confirmLabel={blockTarget?.isBlocked ? t('actions.unblock') : t('actions.block')}
         danger={!blockTarget?.isBlocked}
         busy={blockMutation.isPending}
         onConfirm={() => blockTarget && blockMutation.mutate(blockTarget)}

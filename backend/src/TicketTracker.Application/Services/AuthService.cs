@@ -396,9 +396,11 @@ public sealed class AuthService
     // ----- Self-service profile (API_CONTRACT §4.5, F-04) -----
 
     /// <summary>
-    /// Set or clear the caller's own display name (F-04). Reuses the exact normalization + bound as the
-    /// admin path (ASSUMPTION W1-PROFILE-NAME): trim; blank/whitespace ⇒ null; &gt; 100 ⇒ 400 keyed
-    /// <c>name</c>; idempotent no-op when unchanged. Returns the updated <see cref="UserDto"/>.
+    /// Set or clear the caller's own display name (F-04) and preferred UI/email locale (Wave 3 i18n,
+    /// §5.7/ADR-0022). Reuses the exact name normalization + bound as the admin path
+    /// (ASSUMPTION W1-PROFILE-NAME): trim; blank/whitespace ⇒ null; &gt; 100 ⇒ 400 keyed <c>name</c>.
+    /// Locale is validated to <c>uk|en</c> (blank/whitespace ⇒ null = "unset"; anything else ⇒ 400 keyed
+    /// <c>locale</c>). Idempotent no-op when neither changed. Returns the updated <see cref="UserDto"/>.
     /// </summary>
     public async Task<UserDto> UpdateOwnProfileAsync(Guid userId, UpdateProfileRequest request, CancellationToken ct)
     {
@@ -406,11 +408,21 @@ public sealed class AuthService
             ?? throw ServiceException.Unauthorized();
 
         var name = NormalizeName(request.Name);
+        var locale = NormalizeLocale(request.Locale);
+
+        var changed = false;
         if (!string.Equals(user.Name, name, StringComparison.Ordinal)) // idempotent no-op when unchanged
         {
             user.Name = name;
-            await _db.SaveChangesAsync(ct);
+            changed = true;
         }
+        if (!string.Equals(user.Locale, locale, StringComparison.Ordinal))
+        {
+            user.Locale = locale;
+            changed = true;
+        }
+        if (changed)
+            await _db.SaveChangesAsync(ct);
 
         return await BuildUserDtoAsync(user, ct);
     }
@@ -512,7 +524,7 @@ public sealed class AuthService
             .OrderBy(m => m.Team!.NameNormalized)
             .Select(m => new TeamRefDto(m.TeamId, m.Team!.Name))
             .ToListAsync(ct);
-        return new UserDto(user.Id, user.Email, user.Name, user.EmailVerified, user.IsAdmin, user.IsBlocked, teams);
+        return new UserDto(user.Id, user.Email, user.Name, user.EmailVerified, user.IsAdmin, user.IsBlocked, teams, user.Locale);
     }
 
     /// <summary>
@@ -684,6 +696,21 @@ public sealed class AuthService
         var trimmed = Normalization.NormalizeOptionalText(name);
         if (trimmed is not null && trimmed.Length > FieldLimits.NameMax)
             throw ServiceException.Validation("name", $"Name must be at most {FieldLimits.NameMax} characters.");
+        return trimmed;
+    }
+
+    /// <summary>
+    /// Validate the optional i18n locale (Wave 3, §5.7/ADR-0022). Blank/whitespace ⇒ null ("unset" ⇒ client
+    /// detection / the <c>uk</c> default); otherwise must be one of the supported codes (<c>uk|en</c>),
+    /// else a 400 keyed <c>locale</c>. The backend keeps the localization concern on the client (ADR-0022);
+    /// this column only records the persisted preference for cross-device bootstrap + email locale.
+    /// </summary>
+    private static string? NormalizeLocale(string? locale)
+    {
+        var trimmed = Normalization.NormalizeOptionalText(locale);
+        if (trimmed is null) return null;
+        if (trimmed is not ("uk" or "en"))
+            throw ServiceException.Validation("locale", "Locale must be one of: uk, en.");
         return trimmed;
     }
 }
