@@ -18,6 +18,7 @@ import {
   clearMailpit,
   waitForVerificationLink,
 } from './helpers/mailpit';
+import { promoteToAdmin } from './helpers/adminBootstrap';
 
 // Human column labels — kept identical to src/lib/labels.ts STATE_LABELS so the
 // region (aria-label) lookups match BoardColumn.tsx exactly. Inlined (rather than
@@ -94,9 +95,19 @@ test('signup -> verify -> login -> team -> epic -> ticket -> comment -> drag per
   // AppLayout header confirms an authenticated session.
   await expect(page.getByRole('navigation').getByRole('link', { name: 'Board' })).toBeVisible();
 
-  // ---- 4. Create a team. ----
-  // A brand-new verified account has no teams: the board shows the "No teams
-  // yet" empty state with a button into Team management.
+  // ---- 3b. Promote this account to admin. ----
+  // Under the User-Management authz model (ADR-0007) team/epic CRUD is admin-only,
+  // and a self-registered account is a member with no team. A fresh e2e DB has no
+  // admin to grant the role through the UI, so flip is_admin directly in the e2e
+  // Postgres, then reload: the SPA refetches /me (isAdmin is read fresh per request)
+  // and the admin UI appears — including the "Users" nav and "+ Create team".
+  promoteToAdmin(EMAIL);
+  await page.reload();
+  await expect(page.getByRole('navigation').getByRole('link', { name: 'Users' })).toBeVisible();
+
+  // ---- 4. Create a team (now an admin). ----
+  // With no teams yet, the board shows the "No teams yet" empty state with a
+  // button into Team management, where an admin can create the first team.
   await page.getByRole('button', { name: 'Go to Team management' }).click();
   await expect(page).toHaveURL(/\/teams/);
   await expect(page.getByRole('heading', { name: 'Teams' })).toBeVisible();

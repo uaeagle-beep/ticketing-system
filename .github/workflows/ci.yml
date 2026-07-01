@@ -72,6 +72,10 @@ jobs:
     # it from blocking the overall pass/fail while still surfacing failures + the
     # HTML report. Flip this to `false` once the suite is proven stable in CI.
     continue-on-error: true
+    # Pin the compose project so `up`, `down`, and the in-test admin-promote
+    # (docker compose exec db psql, from frontend/) all target the same stack.
+    env:
+      COMPOSE_PROJECT_NAME: ticketing
     steps:
       - uses: actions/checkout@v4
 
@@ -134,6 +138,9 @@ jobs:
           # The stack is published on localhost:8080 (web) and localhost:8025 (Mailpit).
           E2E_BASE_URL: http://localhost:8080
           MAILPIT_BASE_URL: http://localhost:8025
+          # Consumed by the admin-promote helper (docker compose exec db psql).
+          POSTGRES_USER: ticketing
+          POSTGRES_DB: ticketing
         run: npm run e2e
 
       - name: Upload Playwright report
