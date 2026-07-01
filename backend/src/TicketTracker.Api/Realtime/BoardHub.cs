@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using TicketTracker.Application.Abstractions;
 using TicketTracker.Application.Services;
 
@@ -21,9 +22,11 @@ namespace TicketTracker.Api.Realtime;
 /// for every team it can access. <see cref="SubscribeTeam"/> / <see cref="SubscribeTicket"/> /
 /// <see cref="UnsubscribeTicket"/> let the SPA (re)join a team (admins whose membership list is empty open
 /// teams explicitly) and the open ticket-detail group — each re-checks <c>CanAccessTeam</c> SERVER-SIDE
-/// before adding to a group, so a client can never subscribe to a team it cannot see (§7.5). Messages are
-/// thin signals only, so even a mis-joined group would leak nothing but "something changed" and the
-/// follow-up REST refetch re-checks authz.
+/// before adding to a group, so a client can never subscribe to a team it cannot see (§7.5).
+/// <see cref="SubscribeTicket"/> resolves the ticket's REAL team from the DB and authorizes against THAT,
+/// ignoring any client-supplied team id (SEC-5) — so a member cannot join a foreign ticket's group as an
+/// existence/timing oracle. Messages are thin signals only, so even a mis-joined group would leak nothing but
+/// "something changed" and the follow-up REST refetch re-checks authz.
 /// </summary>
 public sealed class BoardHub : Hub
 {
@@ -33,11 +36,13 @@ public sealed class BoardHub : Hub
     private const string AccessTokenQueryKey = "access_token";
 
     private readonly AuthService _auth;
+    private readonly IAppDbContext _db;
     private readonly ILogger<BoardHub> _logger;
 
-    public BoardHub(AuthService auth, ILogger<BoardHub> logger)
+    public BoardHub(AuthService auth, IAppDbContext db, ILogger<BoardHub> logger)
     {
         _auth = auth;
+        _db = db;
         _logger = logger;
     }
 
@@ -80,12 +85,32 @@ public sealed class BoardHub : Hub
         await Groups.AddToGroupAsync(Context.ConnectionId, TeamGroup(teamId));
     }
 
-    /// <summary>Join <c>ticket:{ticketId}</c> for the open ticket-detail page, gated by the ticket's team access.</summary>
+    /// <summary>
+    /// Join <c>ticket:{ticketId}</c> for the open ticket-detail page, gated by the ticket's REAL team access
+    /// (SEC-5). The ticket's owning team is resolved SERVER-SIDE from the DB — any client-supplied
+    /// <paramref name="teamId"/> is IGNORED for the access decision, so a member can never join
+    /// <c>ticket:{foreignTicket}</c> by asserting a team they belong to (which was an existence/timing oracle).
+    /// A non-existent ticket, or one whose real team the caller cannot access, joins nothing (silent, matching
+    /// the existing no-error-leak pattern). <paramref name="teamId"/> is retained only for client-call
+    /// compatibility; it is not trusted.
+    /// </summary>
     public async Task SubscribeTicket(Guid ticketId, Guid teamId)
     {
+        _ = teamId; // client-supplied; deliberately NOT trusted for authz (SEC-5) — the real team is resolved below.
+
         var principal = CurrentPrincipal;
-        if (principal is null || !CanAccessTeam(principal, teamId))
+        if (principal is null)
             return;
+
+        // Resolve the ticket's ACTUAL team server-side; a missing ticket yields Guid.Empty → no access → no join.
+        var realTeamId = await _db.Tickets
+            .Where(t => t.Id == ticketId)
+            .Select(t => t.TeamId)
+            .FirstOrDefaultAsync(Context.ConnectionAborted);
+
+        if (realTeamId == Guid.Empty || !CanAccessTeam(principal, realTeamId))
+            return;
+
         await Groups.AddToGroupAsync(Context.ConnectionId, TicketGroup(ticketId));
     }
 

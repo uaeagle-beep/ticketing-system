@@ -73,7 +73,20 @@ public sealed class CurrentUserAccessor : ICurrentUser
             throw new ServiceException(ServiceErrorCode.Forbidden, "Admin access required.");
     }
 
-    public bool CanAccessTeam(Guid teamId) => IsAdmin || TeamIds.Contains(teamId);
+    /// <summary>
+    /// True when the principal may act on <paramref name="teamId"/>. A SESSION principal keeps the normal
+    /// breadth (admin sees all; a member iff a member of that team). An API-KEY principal (SEC-6, PO decision:
+    /// RESTRICT) is scoped to the owner's EXPLICIT UserTeam memberships ONLY — the admin breadth is NOT applied
+    /// to key requests, so a member-less admin's key has no team access (intended least-privilege outcome).
+    /// Admin ENDPOINTS remain unreachable to keys regardless (the middleware rejects <c>ptk_</c> off /api/v1);
+    /// this only narrows team SCOPING.
+    /// </summary>
+    public bool CanAccessTeam(Guid teamId)
+    {
+        if (IsApiKey)
+            return TeamIds.Contains(teamId); // membership-only for API keys (admin breadth does NOT apply)
+        return IsAdmin || TeamIds.Contains(teamId);
+    }
 
     public void RequireTeamAccess(Guid teamId)
     {

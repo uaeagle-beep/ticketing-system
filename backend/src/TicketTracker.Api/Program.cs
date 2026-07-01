@@ -130,8 +130,22 @@ builder.Services.AddScoped<TicketTracker.Application.Abstractions.IWebhookUrlVal
 // Outbound HTTP for webhook delivery via IHttpClientFactory. AllowAutoRedirect=false so a subscriber can
 // never 3xx-bounce the request to an internal target (SSRF, §7.4). The per-attempt timeout is applied in
 // the sender via a linked CTS. The test factory replaces IWebhookSender with a fake (no real sockets).
+//
+// SEC-2 (connect-pinning, anti-DNS-rebinding): the send-time SSRF pre-check resolves + validates the host, but
+// HttpClient re-resolves DNS independently at connect — a low-TTL hostile name could pass the pre-check then
+// connect to a private IP (CWE-918 residual). A SocketsHttpHandler.ConnectCallback pins the connection to a
+// validated address: it re-checks the ACTUALLY-resolved IPEndPoint against the SAME block-list
+// (WebhookUrlValidator.IsBlockedAddress — one shared implementation) and refuses to connect to a blocked IP,
+// UNLESS the insecure escape hatch is on (tests/dev target localhost). The callback returns a raw TCP stream,
+// so the handler layers TLS itself using the request URI's host → Host/SNI are preserved. Redirects stay off.
 builder.Services.AddHttpClient(TicketTracker.Api.Webhooks.HttpWebhookSender.HttpClientName)
-    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+    .ConfigurePrimaryHttpMessageHandler(() =>
+    {
+        var handler = new SocketsHttpHandler { AllowAutoRedirect = false };
+        if (!webhooksAllowInsecure)
+            handler.ConnectCallback = TicketTracker.Api.Webhooks.WebhookConnectPinning.ConnectAsync;
+        return handler;
+    });
 builder.Services.AddScoped<TicketTracker.Application.Abstractions.IWebhookSender,
     TicketTracker.Api.Webhooks.HttpWebhookSender>();
 

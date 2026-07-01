@@ -53,6 +53,14 @@ const EPIC_TITLE = `E2E Epic ${RUN_ID}`;
 const TICKET_TITLE = `E2E ticket ${RUN_ID}`;
 const TICKET_BODY = 'Steps to reproduce: open the app and follow the happy path.';
 const COMMENT_BODY = `E2E comment ${RUN_ID}`;
+const ATTACHMENT_NAME = `e2e-${RUN_ID}.png`;
+
+// A minimal but VALID 1x1 PNG (so the server's magic-byte sniff accepts it, not just the .png name).
+// Base64 of the canonical 1x1 transparent PNG; decoded to a Buffer for setInputFiles.
+const TINY_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 test.describe.configure({ mode: 'serial' });
 
@@ -165,6 +173,44 @@ test('signup -> verify -> login -> team -> epic -> ticket -> comment -> drag per
   await expect(page.getByText(COMMENT_BODY)).toBeVisible();
   await expect(page.locator('#new-comment')).toHaveValue('');
 
+  // ---- 7b. Upload an attachment, confirm it lists, and that download forces a file. ----
+  // The file input is hidden (display:none) and labelled "Upload attachment" (AttachmentsPanel.tsx);
+  // setInputFiles works on a hidden input and fires the onChange upload path directly.
+  const fileInput = page.getByLabel('Upload attachment');
+  await fileInput.setInputFiles({
+    name: ATTACHMENT_NAME,
+    mimeType: 'image/png',
+    buffer: TINY_PNG,
+  });
+
+  // The new attachment appears as a row in the attachments list (its filename is the row's name).
+  const attachmentRow = page.locator('.attachment-item', { hasText: ATTACHMENT_NAME });
+  await expect(attachmentRow).toBeVisible();
+
+  // Download is authenticated + forced-download (Content-Disposition: attachment). The UI fetches the
+  // blob with the bearer token and triggers a browser download, so we assert the HTTP header directly:
+  // grab the attachment id + the session token from the app, then GET the download endpoint ourselves.
+  const attachmentId = await firstAttachmentId(page, ticketId);
+  const bearer = await page.evaluate(() => window.localStorage.getItem('tt.auth.token'));
+  expect(bearer, 'the app stores the session token for authenticated requests').toBeTruthy();
+  const download = await request.get(`${appOrigin(page)}/api/attachments/${attachmentId}`, {
+    headers: { Authorization: `Bearer ${bearer}` },
+  });
+  expect(download.ok(), `download should succeed (HTTP ${download.status()})`).toBeTruthy();
+  const disposition = download.headers()['content-disposition'] ?? '';
+  expect(disposition.toLowerCase()).toContain('attachment');
+
+  // ---- 7c. A disallowed file type is rejected by the client pre-check (no server round-trip needed). ----
+  // AttachmentsPanel's precheckFile rejects a present-but-disallowed MIME type and surfaces a toast; the
+  // attachments list must NOT grow. This keeps the negative case robust (client-side, not timing-bound).
+  await fileInput.setInputFiles({
+    name: 'evil.exe',
+    mimeType: 'application/x-msdownload',
+    buffer: Buffer.from('MZ not a real exe'),
+  });
+  // The count of rows is unchanged (only the allowed PNG is present).
+  await expect(page.locator('.attachment-item')).toHaveCount(1);
+
   // ---- 8. Back to the board. ----
   await page.getByRole('link', { name: /Back to board/ }).click();
   await expect(page).toHaveURL(/\/board/);
@@ -193,6 +239,27 @@ test('signup -> verify -> login -> team -> epic -> ticket -> comment -> drag per
 });
 
 // ---- helpers ----
+
+// The app's own origin (Playwright baseURL / nginx entry point) for direct API requests.
+function appOrigin(page: Page): string {
+  return new URL(page.url()).origin;
+}
+
+// Read the ticket's attachment ids through the app's authenticated fetch (same-origin, token attached),
+// and return the first one. Runs in the page so it reuses the SPA's session exactly.
+async function firstAttachmentId(page: Page, ticketId: string): Promise<string> {
+  const id = await page.evaluate(async (tid) => {
+    const token = window.localStorage.getItem('tt.auth.token');
+    const res = await fetch(`/api/tickets/${tid}/attachments`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`list attachments failed: HTTP ${res.status}`);
+    const list = (await res.json()) as Array<{ id: string }>;
+    return list[0]?.id ?? null;
+  }, ticketId);
+  if (!id) throw new Error('No attachment id returned from the attachments list.');
+  return id;
+}
 
 function ticketIdFromUrl(currentUrl: string): string {
   const m = new URL(currentUrl).pathname.match(/\/tickets\/([^/]+)$/);

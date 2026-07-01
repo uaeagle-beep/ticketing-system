@@ -15,6 +15,10 @@ namespace TicketTracker.Infrastructure.Webhooks;
 /// internal at send). Any literal IP is checked directly.</item>
 /// </list>
 /// When <c>WEBHOOKS_ALLOW_INSECURE=true</c> both checks relax so tests/local can target http/localhost.
+///
+/// The IP block-list itself lives in the <c>public static</c> <see cref="IsBlockedAddress"/> so the outbound
+/// webhooks <c>HttpClient</c> can re-check the ACTUALLY-resolved connect address against the SAME predicate
+/// (SEC-2 connect-pinning) — one block-list, two call sites (send-time pre-check + connect-time re-check).
 /// </summary>
 public sealed class WebhookUrlValidator : IWebhookUrlValidator
 {
@@ -82,18 +86,22 @@ public sealed class WebhookUrlValidator : IWebhookUrlValidator
 
         // A single blocked address in the set fails the whole check (belt-and-suspenders).
         foreach (var addr in addresses)
-            if (IsBlocked(addr))
+            if (IsBlockedAddress(addr))
                 return false;
 
         return true;
     }
 
     /// <summary>
-    /// True when the address is one we must never call: loopback, link-local (incl. cloud metadata
-    /// 169.254.169.254), private (10/8, 172.16/12, 192.168/16), unspecified, IPv6 loopback (::1), or ULA
-    /// (fc00::/7). IPv4-mapped IPv6 is unwrapped and re-checked.
+    /// The SINGLE source of truth for the SSRF block-list (Wave 3, ADR-0021, §7.4). True when the address is
+    /// one we must never call: loopback, link-local (incl. cloud metadata 169.254.169.254), private (10/8,
+    /// 172.16/12, 192.168/16), unspecified, IPv6 loopback (::1), or ULA (fc00::/7). IPv4-mapped IPv6 is
+    /// unwrapped and re-checked. Exposed <c>public static</c> so BOTH the send-time pre-check above AND the
+    /// webhooks <c>HttpClient</c>'s <c>SocketsHttpHandler.ConnectCallback</c> (which re-checks the actually
+    /// resolved <c>IPEndPoint</c> at connect time to defeat DNS-rebinding, SEC-2) share ONE implementation —
+    /// no duplicate block-list.
     /// </summary>
-    private static bool IsBlocked(IPAddress address)
+    public static bool IsBlockedAddress(IPAddress address)
     {
         if (address.IsIPv4MappedToIPv6)
             address = address.MapToIPv4();

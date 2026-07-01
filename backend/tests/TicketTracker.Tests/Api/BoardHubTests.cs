@@ -7,6 +7,7 @@ using IHubHttpContextFeature = Microsoft.AspNetCore.Http.Connections.Features.IH
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using TicketTracker.Api.Realtime;
+using TicketTracker.Application.Abstractions;
 using TicketTracker.Application.Services;
 using TicketTracker.Tests.Infrastructure;
 
@@ -29,7 +30,8 @@ public sealed class BoardHubTests : IntegrationTestBase
     {
         var scope = Factory.Services.CreateScope();
         var auth = scope.ServiceProvider.GetRequiredService<AuthService>();
-        var hub = new BoardHub(auth, NullLogger<BoardHub>.Instance)
+        var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
+        var hub = new BoardHub(auth, db, NullLogger<BoardHub>.Instance)
         {
             Groups = groups,
         };
@@ -145,7 +147,94 @@ public sealed class BoardHubTests : IntegrationTestBase
         groups.Joined.Should().Contain(BoardHub.TeamGroup(teamId));
     }
 
+    [Fact]
+    public async Task SubscribeTicket_resolves_the_tickets_real_team_and_denies_a_foreign_ticket()
+    {
+        // The caller is a member of their OWN team only.
+        var (token, userId, _) = await RegisterMemberAsync();
+        var ownTeamId = await CreateTeamAndAddMemberAsync(userId);
+
+        // A DIFFERENT team the caller is NOT a member of, holding a ticket.
+        var foreignTicketId = await SeedTicketInNewTeamAsync();
+
+        var groups = new RecordingGroupManager();
+        var hub = CreateHub(token, groups, out _);
+        await hub.OnConnectedAsync();
+        groups.Joined.Clear(); // ignore connect-time joins; assert only SubscribeTicket behaviour
+
+        // The client LIES: it passes its OWN accessible team id for a ticket that belongs to the foreign team.
+        // The server ignores the supplied team id, resolves the ticket's REAL team, and refuses the join (SEC-5).
+        await hub.SubscribeTicket(foreignTicketId, ownTeamId);
+
+        groups.Joined.Should().NotContain(BoardHub.TicketGroup(foreignTicketId),
+            "a member cannot subscribe to a ticket in a team they don't belong to; the real team is resolved server-side (SEC-5)");
+    }
+
+    [Fact]
+    public async Task SubscribeTicket_joins_a_ticket_in_a_team_the_caller_can_access()
+    {
+        var (token, userId, _) = await RegisterMemberAsync();
+        var teamId = await CreateTeamAndAddMemberAsync(userId);
+        var ticketId = await SeedTicketInTeamAsync(teamId, userId);
+
+        var groups = new RecordingGroupManager();
+        var hub = CreateHub(token, groups, out _);
+        await hub.OnConnectedAsync();
+        groups.Joined.Clear();
+
+        // A stale/incorrect client team id must not matter either way — the server resolves the real team.
+        await hub.SubscribeTicket(ticketId, Guid.NewGuid());
+
+        groups.Joined.Should().Contain(BoardHub.TicketGroup(ticketId),
+            "the caller can subscribe to a ticket whose real team they belong to (server-resolved, SEC-5)");
+    }
+
     // ---- helpers ----
+
+    /// <summary>Create a brand-new team NOBODY in the test is a member of, seed one ticket in it, return the ticket id.</summary>
+    private async Task<Guid> SeedTicketInNewTeamAsync()
+    {
+        var teamId = Guid.NewGuid();
+        await Factory.WithDbAsync(async db =>
+        {
+            db.Teams.Add(new TicketTracker.Domain.Entities.Team
+            {
+                Id = teamId,
+                Name = "Foreign",
+                NameNormalized = "foreign",
+                CreatedAt = Factory.Clock.UtcNow,
+                ModifiedAt = Factory.Clock.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        });
+        // The ticket's creator is irrelevant to the access check; use a fresh admin so a valid FK exists.
+        var (_, adminId, _) = await RegisterAdminAsync();
+        return await SeedTicketInTeamAsync(teamId, adminId);
+    }
+
+    /// <summary>Seed one ticket in the given team created by the given user; return the ticket id.</summary>
+    private async Task<Guid> SeedTicketInTeamAsync(Guid teamId, Guid createdBy)
+    {
+        var ticketId = Guid.NewGuid();
+        await Factory.WithDbAsync(async db =>
+        {
+            db.Tickets.Add(new TicketTracker.Domain.Entities.Ticket
+            {
+                Id = ticketId,
+                TeamId = teamId,
+                Type = TicketTracker.Domain.Enums.TicketType.Bug,
+                State = TicketTracker.Domain.Enums.TicketState.New,
+                Priority = TicketTracker.Domain.Enums.TicketPriority.Medium,
+                Title = "Seed",
+                Body = "b",
+                CreatedBy = createdBy,
+                CreatedAt = Factory.Clock.UtcNow,
+                ModifiedAt = Factory.Clock.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        });
+        return ticketId;
+    }
 
     private async Task<Guid> CreateTeamAndAddMemberAsync(Guid userId)
     {

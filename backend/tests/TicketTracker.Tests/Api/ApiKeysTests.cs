@@ -29,6 +29,11 @@ public sealed class ApiKeysTests : IntegrationTestBase
         var (token, userId, _) = await RegisterVerifiedUserAsync();
         var session = Authed(token);
         var team = await ReadAsync<TeamDto>(await session.PostAsJsonAsync("/api/teams", new { name = "Platform" }));
+        // SEC-6: an API key's team access is EXPLICIT MEMBERSHIPS ONLY (the owner's admin breadth does NOT
+        // apply to key requests). Creating a team does not add the creator as a member, so grant the owner an
+        // explicit membership here — otherwise a key over this team would (correctly) be 403 (see the dedicated
+        // membership-only tests in ApiKeysAcceptanceTests).
+        await AddMembershipAsync(userId, team.Id);
         return (session, userId, team.Id);
     }
 

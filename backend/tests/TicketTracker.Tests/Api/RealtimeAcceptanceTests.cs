@@ -7,6 +7,7 @@ using IHubHttpContextFeature = Microsoft.AspNetCore.Http.Connections.Features.IH
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using TicketTracker.Api.Realtime;
+using TicketTracker.Application.Abstractions;
 using TicketTracker.Application.Services;
 using TicketTracker.Tests.Infrastructure;
 
@@ -15,7 +16,8 @@ namespace TicketTracker.Tests.Api;
 /// <summary>
 /// QA acceptance suite for real-time push (Wave 3, ADR-0019, §11 B). Presses gaps beyond the developer smoke
 /// tests: an EXPIRED session token aborts the hub connection; SubscribeTicket joins the ticket group only
-/// after a server-side team-access check (a non-member joins nothing); UnsubscribeTicket leaves; the notify
+/// after a server-side check against the ticket's REAL team (SEC-5 — a non-member joins nothing even if it
+/// asserts an accessible team id); UnsubscribeTicket leaves; the notify
 /// bell fan-out pings EVERY watcher (never the actor); and an attachment_added event drives board + ticket
 /// signals + a per-watcher bell ping over the same seam. Push correctness is asserted over the recording fake
 /// (no live socket); the hub-shell behaviour uses hand-rolled SignalR doubles.
@@ -85,10 +87,36 @@ public sealed class RealtimeAcceptanceTests : IntegrationTestBase
     {
         var scope = Factory.Services.CreateScope();
         var auth = scope.ServiceProvider.GetRequiredService<AuthService>();
-        var hub = new BoardHub(auth, NullLogger<BoardHub>.Instance) { Groups = groups };
+        var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
+        var hub = new BoardHub(auth, db, NullLogger<BoardHub>.Instance) { Groups = groups };
         ctx = new FakeHubCallerContext(accessToken);
         hub.Context = ctx;
         return hub;
+    }
+
+    /// <summary>Seed one ticket in the given team (SEC-5: SubscribeTicket resolves the ticket's REAL team, so
+    /// the group join needs a ticket that actually exists in an accessible team).</summary>
+    private async Task<Guid> SeedTicketAsync(Guid teamId, Guid createdBy)
+    {
+        var ticketId = Guid.NewGuid();
+        await Factory.WithDbAsync(async db =>
+        {
+            db.Tickets.Add(new TicketTracker.Domain.Entities.Ticket
+            {
+                Id = ticketId,
+                TeamId = teamId,
+                Type = TicketTracker.Domain.Enums.TicketType.Bug,
+                State = TicketTracker.Domain.Enums.TicketState.New,
+                Priority = TicketTracker.Domain.Enums.TicketPriority.Medium,
+                Title = "Seed",
+                Body = "b",
+                CreatedBy = createdBy,
+                CreatedAt = Factory.Clock.UtcNow,
+                ModifiedAt = Factory.Clock.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        });
+        return ticketId;
     }
 
     private async Task<Guid> CreateTeamAndAddMemberAsync(Guid userId)
@@ -132,14 +160,15 @@ public sealed class RealtimeAcceptanceTests : IntegrationTestBase
     {
         var (token, userId, _) = await RegisterMemberAsync();
         var teamId = await CreateTeamAndAddMemberAsync(userId);
-        var ticketId = Guid.NewGuid();
+        var ticketId = await SeedTicketAsync(teamId, userId); // a REAL ticket in the accessible team (SEC-5)
 
         var groups = new RecordingGroupManager();
         var hub = CreateHub(token, groups, out _);
         await hub.OnConnectedAsync();
         groups.Joined.Clear();
 
-        await hub.SubscribeTicket(ticketId, teamId);
+        // A wrong/stale client team id must not matter — the server resolves the ticket's real team.
+        await hub.SubscribeTicket(ticketId, Guid.NewGuid());
         groups.Joined.Should().Contain(BoardHub.TicketGroup(ticketId));
     }
 
@@ -147,17 +176,33 @@ public sealed class RealtimeAcceptanceTests : IntegrationTestBase
     public async Task SubscribeTicket_for_a_team_the_caller_cannot_see_joins_nothing()
     {
         var (token, userId, _) = await RegisterMemberAsync();
-        await CreateTeamAndAddMemberAsync(userId);
-        var foreignTeam = Guid.NewGuid(); // a team the caller is NOT a member of
-        var ticketId = Guid.NewGuid();
+        var ownTeam = await CreateTeamAndAddMemberAsync(userId);
+
+        // A ticket in a DIFFERENT team the caller is NOT a member of (distinct name to avoid the unique index).
+        var foreignTeam = Guid.NewGuid();
+        await Factory.WithDbAsync(async db =>
+        {
+            db.Teams.Add(new TicketTracker.Domain.Entities.Team
+            {
+                Id = foreignTeam,
+                Name = "Foreign",
+                NameNormalized = "foreign",
+                CreatedAt = Factory.Clock.UtcNow,
+                ModifiedAt = Factory.Clock.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        });
+        var foreignTicketId = await SeedTicketAsync(foreignTeam, userId);
 
         var groups = new RecordingGroupManager();
         var hub = CreateHub(token, groups, out _);
         await hub.OnConnectedAsync();
         groups.Joined.Clear();
 
-        await hub.SubscribeTicket(ticketId, foreignTeam);
-        groups.Joined.Should().BeEmpty("the ticket group join is gated by the ticket's team access (§7.5)");
+        // Even if the client asserts its OWN accessible team, the server resolves the ticket's REAL (foreign)
+        // team and refuses the join (SEC-5 — no existence/timing oracle).
+        await hub.SubscribeTicket(foreignTicketId, ownTeam);
+        groups.Joined.Should().BeEmpty("the ticket group join is gated by the ticket's REAL team access (SEC-5, §7.5)");
     }
 
     [Fact]
@@ -165,7 +210,7 @@ public sealed class RealtimeAcceptanceTests : IntegrationTestBase
     {
         var (token, userId, _) = await RegisterMemberAsync();
         var teamId = await CreateTeamAndAddMemberAsync(userId);
-        var ticketId = Guid.NewGuid();
+        var ticketId = await SeedTicketAsync(teamId, userId);
 
         var groups = new RecordingGroupManager();
         var hub = CreateHub(token, groups, out _);

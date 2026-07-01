@@ -12,7 +12,9 @@ namespace TicketTracker.Tests.Api;
 /// delete (no v1 delete route; a session delete route is 401 for a key); a blocked owner's key stops
 /// authenticating immediately; write implies read (a write key can GET); the scope gate fires on every write
 /// verb (PUT/PATCH/comment-POST) for a read-only key → 403 insufficient_scope; revoke is idempotent; a bogus
-/// ptk_ key is 401; last_used_at is recorded; an empty scopes list is 400.
+/// ptk_ key is 401; last_used_at is recorded; an empty scopes list is 400. SEC-6 (PO decision: RESTRICT): a
+/// key's team access is the owner's EXPLICIT memberships ONLY — an admin owner's key reaches only teams they
+/// belong to and is DENIED others (the admin breadth never applies to key requests).
 /// </summary>
 public sealed class ApiKeysAcceptanceTests : IntegrationTestBase
 {
@@ -28,6 +30,10 @@ public sealed class ApiKeysAcceptanceTests : IntegrationTestBase
         var (token, userId, _) = await RegisterVerifiedUserAsync();
         var session = Authed(token);
         var team = await ReadAsync<TeamDto>(await session.PostAsJsonAsync("/api/teams", new { name = "Platform" }));
+        // SEC-6: a key's team access is EXPLICIT MEMBERSHIPS ONLY (admin breadth does not apply to keys).
+        // Grant the owner an explicit membership so keys over this team authorize; the membership-only
+        // denial cases are covered by the dedicated SEC-6 tests below.
+        await AddMembershipAsync(userId, team.Id);
         return (session, userId, team.Id);
     }
 
@@ -150,6 +156,51 @@ public sealed class ApiKeysAcceptanceTests : IntegrationTestBase
         (await key.PostAsJsonAsync("/api/v1/tickets",
             new { teamId = teamA.Id, type = "bug", title = "t2", body = "b" })).StatusCode
             .Should().Be(HttpStatusCode.Forbidden, "the key inherits the owner's live team access");
+    }
+
+    // ================= SEC-6: an API key is membership-only, even for an ADMIN owner =================
+
+    [Fact]
+    public async Task An_admin_owners_key_reaches_only_explicitly_joined_teams_and_is_denied_others()
+    {
+        // The owner is an ADMIN (session admin sees all teams), and is an EXPLICIT member of exactly one team.
+        var (adminToken, adminId, _) = await RegisterAdminAsync();
+        var adminSession = Authed(adminToken);
+        var joinedTeam = await ReadAsync<TeamDto>(await adminSession.PostAsJsonAsync("/api/teams", new { name = "Joined" }));
+        var otherTeam = await ReadAsync<TeamDto>(await adminSession.PostAsJsonAsync("/api/teams", new { name = "NotJoined" }));
+        await AddMembershipAsync(adminId, joinedTeam.Id); // explicit membership in ONE team only
+
+        // Sanity: as a SESSION, the admin can read BOTH teams (admin breadth applies to sessions).
+        (await adminSession.GetAsync($"/api/tickets?teamId={joinedTeam.Id}")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await adminSession.GetAsync($"/api/tickets?teamId={otherTeam.Id}")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var created = await CreateKeyAsync(adminSession, "tickets:read");
+        var key = WithKey(created.Secret);
+
+        // Via the KEY: the explicitly-joined team is reachable...
+        (await key.GetAsync($"/api/v1/tickets?teamId={joinedTeam.Id}")).StatusCode
+            .Should().Be(HttpStatusCode.OK, "an API key reaches teams the owner explicitly belongs to");
+
+        // ...but a team the owner is NOT an explicit member of is DENIED — the admin breadth does NOT apply to
+        // API-key requests (SEC-6, PO decision: RESTRICT / least privilege).
+        (await key.GetAsync($"/api/v1/tickets?teamId={otherTeam.Id}")).StatusCode
+            .Should().Be(HttpStatusCode.Forbidden, "an admin owner's key must NOT inherit admin breadth (SEC-6)");
+    }
+
+    [Fact]
+    public async Task A_member_less_admin_owners_key_has_no_team_access()
+    {
+        // An admin who is a member of NO team: as a session they see everything; via a key they see nothing.
+        var (adminToken, _, _) = await RegisterAdminAsync();
+        var adminSession = Authed(adminToken);
+        var team = await ReadAsync<TeamDto>(await adminSession.PostAsJsonAsync("/api/teams", new { name = "Orphan" }));
+
+        var created = await CreateKeyAsync(adminSession, "tickets:read");
+        var key = WithKey(created.Secret);
+
+        (await key.GetAsync($"/api/v1/tickets?teamId={team.Id}")).StatusCode
+            .Should().Be(HttpStatusCode.Forbidden,
+                "a member-less admin's key has no team access — the intended least-privilege outcome (SEC-6)");
     }
 
     // ================= Revoke is idempotent =================
