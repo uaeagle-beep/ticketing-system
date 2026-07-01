@@ -6,9 +6,9 @@ _Generated: 2026-07-01 · commit `d08308e` (main)_
 
 | Suite | Type | Files | Tests | Result | Duration |
 |---|---|---|---:|---|---|
-| **Backend** (`dotnet test`) | integration (HTTP) + unit | 14 | **202** | ✅ **202 passed / 0 failed / 0 skipped** | ~39 s |
-| **Frontend** (`vitest`) | unit + component (jsdom) | 19 | **145** | ✅ **145 passed / 0 failed** | ~15 s |
-| **Total automated (unit/component/integration)** | | 33 | **347** | ✅ **all green** | |
+| **Backend** (`dotnet test`) | integration (HTTP) + unit | 16 | **234** | ✅ **234 passed / 0 failed / 0 skipped** | ~31 s |
+| **Frontend** (`vitest`) | unit + component (jsdom) | 24 | **168** | ✅ **168 passed / 0 failed** | ~17 s |
+| **Total automated (unit/component/integration)** | | 40 | **402** | ✅ **all green** | |
 | Playwright E2E — **smoke** | browser (vs live prod) | 1 spec | **6** | ✅ **6 passed** (against https://honcharenko.pp.ua) | ~17 s |
 | Playwright E2E — happy-path | browser end-to-end | 1 spec | — | ⏸ blocked: spec predates User Management (self-signup is now a member and can't create teams) + needs the Mailpit e2e stack | |
 
@@ -95,6 +95,20 @@ _Generated: 2026-07-01 · commit `d08308e` (main)_
 ## 7. Raw regression output
 
 ```
-Backend:  Passed! - Failed: 0, Passed: 202, Skipped: 0, Total: 202  (net10.0)
-Frontend: Test Files 19 passed (19) · Tests 145 passed (145)
+Backend:  Passed! - Failed: 0, Passed: 234, Skipped: 0, Total: 234  (net10.0)
+Frontend: Test Files 24 passed (24) · Tests 168 passed (168)
 ```
+
+## 8. Gap-fill additions — User Management QA (2026-07-01)
+
+A dedicated QA gap analysis of User Management added **55 tests** (backend +32, frontend +23), all green — no product defects found.
+
+| New test file | Tests | Gaps closed |
+|---|---:|---|
+| `Api/UserAdminCrudGapsTests.cs` | 26 | set-teams (add/remove/empty/dedupe, unknown team→400, unknown user→404, idempotent, no role change), set-role idempotency, create validation (email format/blank, password min/max, isAdmin=true, teamIds=[]), block/unblock/reset on unknown→404, blocked can't resend, admin-list field completeness for filtering |
+| `Api/SelfSignupAndMeGapsTests.cs` | 6 | self-signup when default team missing (no team, isAdmin=false) vs present (only that team); `/me` teams for member vs admin |
+| `features/users/CreateUserDialog.test.tsx` | 7 | validation, request body shape, chosen vs generated password, email_in_use / validation errors |
+| `features/users/EditUserDialog.test.tsx` | 6 | last-admin guard UI (409 → revert toggle), role/teams/name set-clear, no-op |
+| `features/users/ResetPasswordDialog.test.tsx` | 3 | password shown once, blocked refusal, cancel |
+| `features/users/GeneratedPasswordNotice.test.tsx` | 3 | copy-to-clipboard + "Copied" state |
+| `components/AppLayout.test.tsx` | 4 | header displayName (name→name, blank→email), admin-only "Users" nav visibility |
