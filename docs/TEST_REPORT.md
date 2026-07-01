@@ -8,8 +8,9 @@ _Generated: 2026-07-01 · commit `d08308e` (main)_
 |---|---|---|---:|---|---|
 | **Backend** (`dotnet test`) | integration (HTTP) + unit | 14 | **202** | ✅ **202 passed / 0 failed / 0 skipped** | ~39 s |
 | **Frontend** (`vitest`) | unit + component (jsdom) | 19 | **145** | ✅ **145 passed / 0 failed** | ~15 s |
-| **Total automated** | | 33 | **347** | ✅ **all green** | |
-| Playwright E2E | browser end-to-end | 2 specs | — | ⏸ not run here (needs the Docker stack) | |
+| **Total automated (unit/component/integration)** | | 33 | **347** | ✅ **all green** | |
+| Playwright E2E — **smoke** | browser (vs live prod) | 1 spec | **6** | ✅ **6 passed** (against https://honcharenko.pp.ua) | ~17 s |
+| Playwright E2E — happy-path | browser end-to-end | 1 spec | — | ⏸ blocked: spec predates User Management (self-signup is now a member and can't create teams) + needs the Mailpit e2e stack | |
 
 **Verdict: GO** — full regression is green; no failures, no skips.
 
@@ -83,7 +84,7 @@ _Generated: 2026-07-01 · commit `d08308e` (main)_
 
 ## 6. Not covered by the automated run (honest gaps)
 
-- **Playwright E2E is not executed in this regression** (needs the Docker stack + Mailpit + browser binaries). It is authored and wired into CI; run it there or locally against the compose stack.
+- **Playwright E2E — smoke** was executed against live prod (6/6 ✅). The **happy-path** spec is currently **stale**: it was written before User Management and drives "create team" as a freshly self-registered account — which is now a *member* (team CRUD is admin-only). It must be updated for the new authz model (bootstrap an admin, e.g. promote via DB in setup) and run against the Mailpit-backed e2e compose stack before it will pass.
 - **PostgreSQL-specific paths**: integration tests use SQLite (`EnsureCreated`). The Npgsql data-migration (existing users → admin), citext/collation nuances, and serializable-retry under real concurrency are exercised only on the Postgres/prod path + the CI parity guard — verified manually on deploy, not in this unit run.
 - **Real SMTP / email delivery** (`IEmailSender` is faked) — verified manually on prod (relay1/mail.honcharenko.pp.ua).
 - **Docker build / `docker compose up`** is not a test — validated on each deploy.
