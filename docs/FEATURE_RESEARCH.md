@@ -437,3 +437,27 @@ F-01 (password reset), F-03 (priority), F-04 (profile edit), F-08 (due date), F-
 ---
 
 *End of research. This document is BA input for the product owner (prioritization decision) and the architect (design of the chosen slate). It states WHAT and WHY; the HOW is the architect's to design.*
+
+---
+
+## Product-owner decisions (2026-07-01)
+
+1. **Scope mandate — CONFIRMED.** The §12 "out of scope" items are RETURNED to the
+   roadmap: assignee, priority, labels, notifications, activity history,
+   attachments and real-time updates are all in-plan (subject to wave sequencing).
+   Nothing is held permanently out of scope at this time.
+2. **Assignee (F-02): MULTIPLE assignees per ticket** (many-to-many ticket ↔ users;
+   multi-select UI).
+3. **Notifications (F-06/F-13): BOTH in-app AND email, on ALL changes.** This makes
+   notifications a first-class subsystem — an event backbone + in-app inbox + email
+   fan-out covering every ticket/board change. It is a Wave-2 strategic effort with
+   F-02 (assignee) and F-23 (email deliverability) as prerequisites, not a quick win.
+
+**Revised sequencing:**
+- **Wave 1 (now):** account/onboarding gaps + cheap ticket fields — F-01 password
+  reset, F-04 self-profile, F-10 default-team provisioning, F-03 priority,
+  F-02 multi-assignee, F-08 due date, F-23 email deliverability (SPF/DKIM/DMARC).
+- **Wave 2:** notifications subsystem (in-app + email, all changes), F-12
+  edit/delete own comments, activity history, labels/tags.
+- **Wave 3:** attachments, real-time board updates, analytics/reporting,
+  API/webhooks, i18n (uk/en).
