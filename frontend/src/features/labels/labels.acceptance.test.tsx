@@ -106,34 +106,39 @@ describe('LabelsManager — duplicate name 409 (acceptance)', () => {
 });
 
 describe('LabelPicker — multi-select (acceptance)', () => {
-  it('reflects the selected set as checked checkboxes and toggles each independently', async () => {
+  it('reflects the selected set as aria-selected options and toggles each independently', async () => {
     const onToggle = vi.fn();
     const user = userEvent.setup();
     render(
       <LabelPicker labels={[backend, urgent]} selectedIds={['lb01-backend']} onToggle={onToggle} />,
     );
 
-    const checkboxes = screen.getAllByRole('checkbox');
-    expect(checkboxes).toHaveLength(2);
-    // Backend is pre-selected (checked); Urgent is not.
-    const backendBox = checkboxes[0]!;
-    const urgentBox = checkboxes[1]!;
-    expect(backendBox).toBeChecked();
-    expect(urgentBox).not.toBeChecked();
+    // Open the dropdown listbox.
+    await user.click(screen.getByRole('button', { name: 'Labels' }));
+    const listbox = screen.getByRole('listbox');
+    expect(listbox).toHaveAttribute('aria-multiselectable', 'true');
+
+    const options = within(listbox).getAllByRole('option');
+    expect(options).toHaveLength(2);
+    // Backend is pre-selected; Urgent is not.
+    const backendOption = within(listbox).getByRole('option', { name: /Backend/ });
+    const urgentOption = within(listbox).getByRole('option', { name: /Urgent/ });
+    expect(backendOption).toHaveAttribute('aria-selected', 'true');
+    expect(urgentOption).toHaveAttribute('aria-selected', 'false');
 
     // Toggling Urgent ON fires its id.
-    await user.click(urgentBox);
+    await user.click(urgentOption);
     expect(onToggle).toHaveBeenCalledWith('lb02-urgent');
 
-    // Toggling Backend OFF fires its id too.
-    await user.click(backendBox);
+    // Toggling Backend OFF fires its id too (multi-select: the panel stays open).
+    await user.click(backendOption);
     expect(onToggle).toHaveBeenCalledWith('lb01-backend');
   });
 
-  it('disables all options when disabled', () => {
+  it('disables the trigger when disabled', () => {
     render(
       <LabelPicker labels={[backend, urgent]} selectedIds={[]} onToggle={vi.fn()} disabled />,
     );
-    for (const box of screen.getAllByRole('checkbox')) expect(box).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Labels' })).toBeDisabled();
   });
 });

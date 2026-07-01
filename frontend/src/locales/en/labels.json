@@ -30,6 +30,7 @@
   },
   "picker": {
     "groupLabel": "Labels",
+    "placeholder": "Select labels…",
     "empty": "No labels for this team yet — create them on the Teams page."
   }
 }

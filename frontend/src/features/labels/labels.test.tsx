@@ -118,18 +118,20 @@ describe('FilterBar — label filter', () => {
 });
 
 describe('LabelPicker', () => {
-  it('toggles a label id', async () => {
+  it('toggles a label id via the dropdown', async () => {
     const onToggle = vi.fn();
     const user = userEvent.setup();
     render(<LabelPicker labels={[backend, urgent]} selectedIds={['lb01-backend']} onToggle={onToggle} />);
-    // Backend is pre-selected; toggling Urgent fires with its id.
-    const urgentChip = screen.getByText('Urgent');
-    await user.click(urgentChip);
+    // The picker is now a multi-select dropdown: open it, then toggle an option.
+    await user.click(screen.getByRole('button', { name: 'Labels' }));
+    await user.click(screen.getByRole('option', { name: /Urgent/ }));
     expect(onToggle).toHaveBeenCalledWith('lb02-urgent');
   });
 
   it('points to management when the team has no labels', () => {
     render(<LabelPicker labels={[]} selectedIds={[]} onToggle={vi.fn()} />);
+    // No labels → no dropdown trigger, just the management hint.
+    expect(screen.queryByRole('button', { name: 'Labels' })).not.toBeInTheDocument();
     expect(screen.getByText(/No labels for this team/i)).toBeInTheDocument();
   });
 });

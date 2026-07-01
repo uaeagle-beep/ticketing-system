@@ -25,6 +25,7 @@
     "priority": "Пріоритет",
     "dueDate": "Строк виконання",
     "assignees": "Виконавці",
+    "assigneesPlaceholder": "Оберіть виконавців…",
     "labels": "Мітки",
     "labelsPlaceholder": "Оберіть команду, щоб вибрати мітки.",
     "title": "Заголовок",

@@ -31,6 +31,7 @@ import { useEpics } from '@/features/epics/useEpics';
 import { useLabels } from '@/features/labels/useLabels';
 import { LabelPicker } from '@/features/labels/LabelPicker';
 import { LabelChips } from '@/components/Badges';
+import { MultiSelectDropdown } from '@/components/MultiSelectDropdown';
 import { useTeamMembers } from './useTeamMembers';
 import { LoadingState, ErrorState } from '@/components/States';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -504,19 +505,17 @@ export function TicketPage() {
               <label htmlFor="ticket-assignees">{t('fields.assignees')}</label>
               {canListAssignees ? (
                 assigneeCandidates.length > 0 ? (
-                  <div id="ticket-assignees" className="assignee-picker" role="group" aria-label={t('fields.assignees')}>
-                    {assigneeCandidates.map((u) => (
-                      <label key={u.id} className="assignee-option">
-                        <input
-                          type="checkbox"
-                          checked={form.assigneeIds.includes(u.id)}
-                          onChange={() => toggleAssignee(u.id)}
-                          disabled={saving}
-                        />
-                        <span>{u.displayName}</span>
-                      </label>
-                    ))}
-                  </div>
+                  <MultiSelectDropdown
+                    id="ticket-assignees"
+                    ariaLabel={t('fields.assignees')}
+                    options={assigneeCandidates}
+                    selectedIds={form.assigneeIds}
+                    onToggle={toggleAssignee}
+                    disabled={saving}
+                    placeholder={t('fields.assigneesPlaceholder')}
+                    renderOption={(u) => <span>{u.displayName}</span>}
+                    renderSelected={(u) => <span className="muted">{u.displayName}</span>}
+                  />
                 ) : (
                   <span className="muted">{t('assignees.noEligible')}</span>
                 )

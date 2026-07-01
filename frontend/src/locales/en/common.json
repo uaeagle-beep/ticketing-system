@@ -65,5 +65,9 @@
       "overLimit": ", over limit ({{current}} of {{limit}})",
       "full": ", full ({{current}} of {{limit}})"
     }
+  },
+  "multiSelect": {
+    "selectedCount_one": "{{count}} selected",
+    "selectedCount_other": "{{count}} selected"
   }
 }

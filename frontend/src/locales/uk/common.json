@@ -65,5 +65,11 @@
       "overLimit": ", перевищено ліміт ({{current}} з {{limit}})",
       "full": ", заповнено ({{current}} з {{limit}})"
     }
+  },
+  "multiSelect": {
+    "selectedCount_one": "Обрано: {{count}}",
+    "selectedCount_few": "Обрано: {{count}}",
+    "selectedCount_many": "Обрано: {{count}}",
+    "selectedCount_other": "Обрано: {{count}}"
   }
 }

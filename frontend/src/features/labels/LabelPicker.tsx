@@ -1,12 +1,14 @@
-// Multi-select label picker for the ticket create/edit form (Wave 2, §9.4, ADR-0016). Mirrors the
-// assignee-picker pattern in TicketPage: a group of toggle checkboxes over the team's labels, whose value
-// is the full selected set (submitted via PUT /api/tickets/{id}/labels). Each option shows the label's
-// colored chip so it is recognizable. Label CREATION lives on the management surface (Teams page), so this
-// picker only selects from existing labels; when a team has none it points the user there.
+// Multi-select label picker for the ticket create/edit form (Wave 2, §9.4, ADR-0016). Renders via the
+// shared accessible MultiSelectDropdown: a trigger button showing the selected labels as colored chips,
+// and a popover listbox of the team's labels (each row shows its colored chip so it is recognizable).
+// The value is the full selected set (submitted via PUT /api/tickets/{id}/labels). Label CREATION lives
+// on the management surface (Teams page), so this picker only selects from existing labels; when a team
+// has none it points the user there.
 
 import { useTranslation } from 'react-i18next';
 import type { LabelRef } from '@/api/types';
 import { LabelChip } from '@/components/Badges';
+import { MultiSelectDropdown } from '@/components/MultiSelectDropdown';
 
 interface LabelPickerProps {
   labels: LabelRef[];
@@ -22,18 +24,16 @@ export function LabelPicker({ labels, selectedIds, disabled, onToggle }: LabelPi
   }
 
   return (
-    <div id="ticket-labels" className="assignee-picker" role="group" aria-label={t('picker.groupLabel')}>
-      {labels.map((label) => (
-        <label key={label.id} className="assignee-option">
-          <input
-            type="checkbox"
-            checked={selectedIds.includes(label.id)}
-            onChange={() => onToggle(label.id)}
-            disabled={disabled}
-          />
-          <LabelChip label={label} />
-        </label>
-      ))}
-    </div>
+    <MultiSelectDropdown
+      id="ticket-labels"
+      ariaLabel={t('picker.groupLabel')}
+      options={labels}
+      selectedIds={selectedIds}
+      onToggle={onToggle}
+      disabled={disabled}
+      placeholder={t('picker.placeholder')}
+      renderOption={(label) => <LabelChip label={label} />}
+      renderSelected={(label) => <LabelChip label={label} />}
+    />
   );
 }

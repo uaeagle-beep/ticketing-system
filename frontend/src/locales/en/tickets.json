@@ -25,6 +25,7 @@
     "priority": "Priority",
     "dueDate": "Due date",
     "assignees": "Assignees",
+    "assigneesPlaceholder": "Select assignees…",
     "labels": "Labels",
     "labelsPlaceholder": "Select a team to choose labels.",
     "title": "Title",
