@@ -62,4 +62,13 @@ describe('AppLayout header display name', () => {
     await screen.findByText('Board content');
     expect(screen.queryByRole('link', { name: 'Users' })).not.toBeInTheDocument();
   });
+
+  it('shows the Help nav to every signed-in user (members included)', async () => {
+    seedAuthToken('t');
+    seedMe({ name: null, email: 'member@dataart.com', isAdmin: false });
+    renderRoutes(<Shell />, { initialEntries: ['/board'] });
+
+    await screen.findByText('Board content');
+    expect(screen.getByRole('link', { name: 'Help' })).toHaveAttribute('href', '/help');
+  });
 });

@@ -16,6 +16,7 @@ import { AnalyticsPage } from '@/features/analytics/AnalyticsPage';
 import { UsersPage } from '@/features/users/UsersPage';
 import { AccountPage } from '@/features/account/AccountPage';
 import { NotificationsPage } from '@/features/notifications/NotificationsPage';
+import { HelpPage } from '@/features/help/HelpPage';
 import { NotFoundPage } from '@/components/NotFoundPage';
 
 export function App() {
@@ -43,6 +44,8 @@ export function App() {
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/account" element={<AccountPage />} />
+          {/* Help: the in-app User & Administrator Guide, available to any signed-in user. */}
+          <Route path="/help" element={<HelpPage />} />
           {/* Admin-only Users zone (ADR-0007). Backend re-checks admin on every call. */}
           <Route element={<RequireAdmin />}>
             <Route path="/users" element={<UsersPage />} />

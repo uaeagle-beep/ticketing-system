@@ -65,6 +65,10 @@ export function AppLayout() {
               {t('nav.users')}
             </NavLink>
           ) : null}
+          {/* Help: the in-app User & Administrator Guide, available to every signed-in user. */}
+          <NavLink to="/help" className={({ isActive }) => (isActive ? 'active' : '')}>
+            {t('nav.help')}
+          </NavLink>
         </nav>
         <div className="app-header-spacer" />
         <LanguageSwitcher />

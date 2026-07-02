@@ -6,7 +6,12 @@
     "epics": "Epics",
     "analytics": "Analytics",
     "users": "Users",
-    "notifications": "Notifications"
+    "notifications": "Notifications",
+    "help": "Help"
+  },
+  "help": {
+    "title": "Help",
+    "subtitle": "The complete user & administrator guide."
   },
   "userMenu": {
     "account": "Account",
