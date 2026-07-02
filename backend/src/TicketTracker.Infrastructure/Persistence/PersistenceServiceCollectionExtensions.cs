@@ -17,17 +17,31 @@ public static class PersistenceServiceCollectionExtensions
 
     public static IServiceCollection AddAppPersistence(this IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString(ConnectionStringName)
-            ?? "Host=db;Port=5432;Database=ticketing;Username=ticketing;Password=change-me-local";
+        // Provider switch (ADR-0002 extended for local dev): default Postgres (prod/Docker).
+        // DATABASE_PROVIDER=Sqlite selects a file-based SQLite DB for a no-Docker local run.
+        var provider = configuration.GetValue<string>("DATABASE_PROVIDER") ?? "Postgres";
+        var connectionString = configuration.GetConnectionString(ConnectionStringName);
 
-        services.AddDbContext<AppDbContext>(options =>
+        if (string.Equals(provider, "Sqlite", StringComparison.OrdinalIgnoreCase))
         {
-            options.UseNpgsql(connectionString, npgsql =>
+            // Schema is created via EnsureCreated in DatabaseInitializer because the Npgsql
+            // migrations are provider-specific. The model is SQLite-compatible (proven by tests).
+            services.AddDbContext<AppDbContext>(options =>
+                options.UseSqlite(connectionString ?? "Data Source=ticketing-dev.db"));
+        }
+        else
+        {
+            services.AddDbContext<AppDbContext>(options =>
             {
-                npgsql.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName);
-                npgsql.EnableRetryOnFailure();
+                options.UseNpgsql(
+                    connectionString ?? "Host=db;Port=5432;Database=ticketing;Username=ticketing;Password=change-me-local",
+                    npgsql =>
+                    {
+                        npgsql.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName);
+                        npgsql.EnableRetryOnFailure();
+                    });
             });
-        });
+        }
 
         // Expose the context through the application port so services depend only on IAppDbContext.
         services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AppDbContext>());

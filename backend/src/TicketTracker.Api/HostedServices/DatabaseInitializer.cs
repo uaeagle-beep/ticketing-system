@@ -49,7 +49,7 @@ public sealed class DatabaseInitializer : BackgroundService
                 using var scope = _services.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-                await db.Database.MigrateAsync(stoppingToken);
+                await ApplySchemaAsync(db, _logger, stoppingToken);
 
                 _readiness.MigrationsApplied = true;
                 _logger.LogInformation("Database migrations applied successfully on attempt {Attempt}.", attempt);
@@ -73,6 +73,22 @@ public sealed class DatabaseInitializer : BackgroundService
             await db.Database.MigrateAsync(stoppingToken);
             _readiness.MigrationsApplied = true;
             _logger.LogInformation("Database migrations applied successfully on the final attempt.");
+        }
+    }
+
+    // Postgres (prod/Docker) applies the real EF migrations. SQLite (local dev,
+    // DATABASE_PROVIDER=Sqlite) creates the schema via EnsureCreated, since the Npgsql
+    // migrations are provider-specific. The model is SQLite-compatible (proven by the test suite).
+    private static async Task ApplySchemaAsync(AppDbContext db, ILogger logger, CancellationToken ct)
+    {
+        if (db.Database.ProviderName?.Contains("Sqlite") == true)
+        {
+            await db.Database.EnsureCreatedAsync(ct);
+            logger.LogInformation("SQLite dev schema ensured via EnsureCreated (no migrations).");
+        }
+        else
+        {
+            await db.Database.MigrateAsync(ct);
         }
     }
 }

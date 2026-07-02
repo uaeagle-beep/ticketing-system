@@ -43,7 +43,13 @@ public static class InfrastructureServiceCollectionExtensions
 
         // SMTP options are bound from the SMTP_* environment keys in the API composition root
         // (Program.cs). No appsettings "Smtp" section exists, so no binding is registered here.
-        services.AddScoped<IEmailSender, SmtpEmailSender>();
+        // EMAIL_SENDER=log selects a dev sender that writes the verification link to the log,
+        // letting a local run without a reachable SMTP relay still complete signup->verify->login.
+        var emailSender = configuration["EMAIL_SENDER"];
+        if (string.Equals(emailSender, "log", StringComparison.OrdinalIgnoreCase))
+            services.AddScoped<IEmailSender, LoggingEmailSender>();
+        else
+            services.AddScoped<IEmailSender, SmtpEmailSender>();
 
         return services;
     }
